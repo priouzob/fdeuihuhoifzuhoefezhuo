@@ -508,6 +508,40 @@ def setup_account(account_id, start_url="https://wiki-masters.com/signup", statu
         safe_notify(status_callback, f"Erreur lors de la configuration : {e}", "error")
         return False, str(e)
 
+def open_account_browser(account_id, url="https://wiki-masters.com/pulls"):
+    """
+    Lance le navigateur associé à ce compte avec son profil persistant
+    dans une fenêtre visible et autonome.
+    Les cookies et sessions de connexion sont automatiquement chargés.
+    """
+    acc = get_account_info(account_id)
+    name = acc.get("name", account_id)
+    exe_path = get_browser_executable_for_account(account_id)
+    p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
+    p_dir.mkdir(parents=True, exist_ok=True)
+
+    b_type = acc.get("browser_type", "chrome")
+    b_name = SUPPORTED_BROWSERS.get(b_type, {}).get("name", "Navigateur")
+
+    if not os.path.exists(exe_path):
+        return False, f"Exécutable {b_name} ({exe_path}) introuvable."
+
+    kill_browser_processes(account_id)
+    time.sleep(0.3)
+
+    cmd = [
+        exe_path,
+        f"--user-data-dir={p_dir}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        url
+    ]
+    try:
+        subprocess.Popen(cmd)
+        return True, f"{b_name} ouvert pour {name}."
+    except Exception as e:
+        return False, str(e)
+
 def extract_timer_seconds(page):
     try:
         body_text = page.inner_text("body")
