@@ -1,0 +1,8 @@
+{
+  "target_url": "https://wiki-masters.com/pulls",
+  "check_interval_seconds": 600,
+  "random_jitter_seconds": 15,
+  "headless": true,
+  "chrome_executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "accounts": []
+}
