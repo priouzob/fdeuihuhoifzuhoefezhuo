@@ -47,7 +47,7 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QProgressBar, QFrame, QScrollArea,
     QTextEdit, QDialog, QMessageBox, QListWidget, QListWidgetItem,
     QCheckBox, QSizePolicy, QInputDialog, QLineEdit, QRadioButton,
-    QButtonGroup
+    QButtonGroup, QComboBox
 )
 from PySide6.QtCore import Qt, QTimer, QThread, Signal, Slot, QSize, QRect
 from PySide6.QtGui import QFont, QIcon, QPixmap, QColor, QPainter, QLinearGradient, QPen, QBrush
@@ -347,6 +347,266 @@ class HistoryModal(QDialog):
                 self.refresh_list()
             except Exception:
                 pass
+
+class TopCardsModal(QDialog):
+    def __init__(self, initial_account_id=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("🏆 Classement des 10 Meilleures Cartes par Compte")
+        self.resize(880, 640)
+        self.setMinimumSize(720, 480)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint | Qt.WindowMinimizeButtonHint)
+        self.setStyleSheet(DARK_STYLE + f"QDialog{{background:{C_BG};}}")
+
+        self.accounts = engine.get_accounts()
+        if not self.accounts:
+            self.accounts = [{"id": "compte_1", "name": "Compte 1"}]
+
+        self.current_acc_id = initial_account_id or (self.accounts[0]["id"] if self.accounts else "compte_1")
+        if not any(a["id"] == self.current_acc_id for a in self.accounts):
+            self.current_acc_id = self.accounts[0]["id"]
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 20, 22, 20)
+        layout.setSpacing(14)
+
+        # ── En-tête ──────────────────────────────────────────────────────────
+        top_bar = QHBoxLayout()
+        top_title_col = QVBoxLayout()
+        top_title_col.setSpacing(3)
+
+        title_lbl = QLabel("🏆  Top 10 des Cartes les plus Rares")
+        title_lbl.setStyleSheet("font-size:18px; font-weight:800; color:#fbbf24; letter-spacing:0.3px;")
+        subtitle_lbl = QLabel(
+            "Chaque compte garde automatiquement ses 10 meilleures cartes (L > UR > SR > R > PC > C).\n"
+            "Dès qu'une carte plus prestigieuse est tirée, la moins rare est automatiquement supprimée."
+        )
+        subtitle_lbl.setStyleSheet(f"font-size:11px; color:{C_MUTED};")
+        top_title_col.addWidget(title_lbl)
+        top_title_col.addWidget(subtitle_lbl)
+        top_bar.addLayout(top_title_col)
+        top_bar.addStretch()
+
+        layout.addLayout(top_bar)
+        layout.addWidget(make_separator())
+
+        # ── Sélecteur de compte (Boutons Onglets) ─────────────────────────────
+        acc_bar = QHBoxLayout()
+        acc_bar.setSpacing(8)
+        lbl_acc = QLabel("Compte :")
+        lbl_acc.setStyleSheet(f"font-size:12px; font-weight:700; color:{C_TEXT};")
+        acc_bar.addWidget(lbl_acc)
+
+        self.account_btn_group = QButtonGroup(self)
+        self.account_btn_group.setExclusive(True)
+        self.acc_buttons = {}
+
+        for acc in self.accounts:
+            acc_id = acc["id"]
+            acc_name = acc.get("name", acc_id)
+            btn = QPushButton(f"👤  {acc_name}")
+            btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            if acc_id == self.current_acc_id:
+                btn.setChecked(True)
+            self._apply_acc_btn_style(btn, btn.isChecked())
+            btn.clicked.connect(lambda checked, aid=acc_id: self.select_account(aid))
+            self.account_btn_group.addButton(btn)
+            self.acc_buttons[acc_id] = btn
+            acc_bar.addWidget(btn)
+
+        acc_bar.addStretch()
+
+        self.lbl_stats_summary = QLabel("")
+        self.lbl_stats_summary.setStyleSheet("font-size:11px; font-weight:600; color:#a855f7;")
+        acc_bar.addWidget(self.lbl_stats_summary)
+
+        layout.addLayout(acc_bar)
+
+        # ── Zone Scrollable pour la liste des cartes ─────────────────────────
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        self.cards_container = QWidget()
+        self.cards_container.setStyleSheet("background: transparent;")
+        self.cards_layout = QVBoxLayout(self.cards_container)
+        self.cards_layout.setContentsMargins(0, 4, 0, 4)
+        self.cards_layout.setSpacing(10)
+
+        self.scroll.setWidget(self.cards_container)
+        layout.addWidget(self.scroll, 1)
+
+        layout.addWidget(make_separator())
+
+        # ── Barre inférieure ─────────────────────────────────────────────────
+        bottom_bar = QHBoxLayout()
+        lbl_info = QLabel("💡 Seules les 10 cartes au sommet sont conservées par compte. Aucune surcharge mémoire.")
+        lbl_info.setStyleSheet(f"font-size:10px; color:{C_MUTED}; font-style:italic;")
+        bottom_bar.addWidget(lbl_info)
+        bottom_bar.addStretch()
+
+        btn_close = QPushButton("✕  Fermer")
+        btn_close.setObjectName("btnPrimary")
+        btn_close.setFixedWidth(120)
+        btn_close.clicked.connect(self.close)
+        bottom_bar.addWidget(btn_close)
+
+        layout.addLayout(bottom_bar)
+
+        # Charger l'affichage
+        self.refresh_cards_view()
+
+    def _apply_acc_btn_style(self, btn, is_selected):
+        if is_selected:
+            btn.setStyleSheet(
+                "QPushButton { background: #3b1d54; color: #f3e8ff; border: 1px solid #a855f7; "
+                "border-radius: 8px; padding: 6px 14px; font-size: 11px; font-weight: 700; }"
+            )
+        else:
+            btn.setStyleSheet(
+                f"QPushButton {{ background: {C_SURFACE}; color: {C_TEXT}; border: 1px solid {C_BORDER}; "
+                f"border-radius: 8px; padding: 6px 14px; font-size: 11px; font-weight: 500; }} "
+                f"QPushButton:hover {{ border-color: #6366f1; color: #ffffff; }}"
+            )
+
+    def select_account(self, account_id):
+        self.current_acc_id = account_id
+        for aid, btn in self.acc_buttons.items():
+            self._apply_acc_btn_style(btn, aid == account_id)
+        self.refresh_cards_view()
+
+    def refresh_cards_view(self):
+        while self.cards_layout.count():
+            item = self.cards_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+        cards = engine.get_account_best_cards(self.current_acc_id)
+
+        if cards:
+            rarity_counts = {}
+            for c in cards:
+                r = c.get("rarity", "C")
+                rarity_counts[r] = rarity_counts.get(r, 0) + 1
+            order = ["L", "UR", "SR", "R", "PC", "C"]
+            summary_parts = []
+            for r_code in order:
+                cnt = rarity_counts.get(r_code, 0)
+                if cnt > 0:
+                    badge = engine.RARITY_MAP.get(r_code, {}).get("name", r_code)
+                    summary_parts.append(f"{cnt} {badge}")
+            self.lbl_stats_summary.setText(f"📊 {len(cards)}/10 conservées : " + ", ".join(summary_parts))
+        else:
+            self.lbl_stats_summary.setText("📊 0/10 carte conservée")
+
+        if not cards:
+            empty_frame = QFrame()
+            empty_frame.setStyleSheet(f"background:{C_SURFACE}; border:1px dashed {C_BORDER2}; border-radius:12px; padding:40px;")
+            ev = QVBoxLayout(empty_frame)
+            ev.setAlignment(Qt.AlignCenter)
+            lbl_empty_icon = QLabel("🎴")
+            lbl_empty_icon.setStyleSheet("font-size:36px; border:none; background:transparent;")
+            lbl_empty_icon.setAlignment(Qt.AlignCenter)
+            lbl_empty_text = QLabel("Aucune carte rare enregistrée pour ce compte pour le moment.\nEffectuez des tirages de paquets pour remplir votre Top 10 !")
+            lbl_empty_text.setAlignment(Qt.AlignCenter)
+            lbl_empty_text.setStyleSheet(f"font-size:12px; color:{C_MUTED}; border:none; background:transparent;")
+            ev.addWidget(lbl_empty_icon)
+            ev.addWidget(lbl_empty_text)
+            self.cards_layout.addWidget(empty_frame)
+            self.cards_layout.addStretch()
+            return
+
+        medals = {0: "🥇", 1: "🥈", 2: "🥉"}
+
+        for idx, card in enumerate(cards):
+            c_row = QFrame()
+            c_row.setStyleSheet(
+                f"QFrame {{ background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 10px; }} "
+                f"QFrame:hover {{ border-color: {C_BORDER2}; background: #131b26; }}"
+            )
+            rh = QHBoxLayout(c_row)
+            rh.setContentsMargins(14, 10, 14, 10)
+            rh.setSpacing(14)
+
+            # 1. Rang
+            medal = medals.get(idx, f"#{idx+1}")
+            lbl_rank = QLabel(f"{medal}")
+            lbl_rank.setFixedWidth(40)
+            lbl_rank.setAlignment(Qt.AlignCenter)
+            lbl_rank.setStyleSheet("font-size: 15px; font-weight: 800; color: #f8fafc; border: none; background: transparent;")
+            rh.addWidget(lbl_rank)
+
+            # 2. Badge de rareté officiel
+            r_code = card.get("rarity", "C").upper()
+            r_info = engine.RARITY_MAP.get(r_code, {"name": r_code, "color": "#94a3b8", "bg": "#1e293b", "badge": r_code})
+            badge_text = r_info.get("badge", r_code)
+            lbl_badge = QLabel(f" {badge_text} ")
+            lbl_badge.setStyleSheet(
+                f"color: {r_info['color']}; background: {r_info['bg']}; "
+                f"border: 1px solid {r_info['color']}66; border-radius: 6px; "
+                f"font-size: 11px; font-weight: 800; padding: 4px 8px;"
+            )
+            rh.addWidget(lbl_badge)
+
+            # 3. Titre et Date
+            title_col = QVBoxLayout()
+            title_col.setSpacing(2)
+            c_title = card.get("title", "Carte sans nom")
+            lbl_name = QLabel(c_title)
+            lbl_name.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {C_TEXT}; border: none; background: transparent;")
+
+            c_ts = card.get("timestamp", "")
+            lbl_time = QLabel(f"📅 Tirée le {c_ts}" if c_ts else "")
+            lbl_time.setStyleSheet(f"font-size: 10px; color: {C_MUTED}; border: none; background: transparent;")
+            title_col.addWidget(lbl_name)
+            if c_ts:
+                title_col.addWidget(lbl_time)
+            rh.addLayout(title_col, 1)
+
+            # 4. Bouton voir capture (si disponible)
+            shot = card.get("screenshot")
+            if shot and os.path.exists(shot):
+                btn_view = QPushButton("📷  Voir tirage")
+                btn_view.setStyleSheet(
+                    f"QPushButton {{ background: #1e293b; color: #94a3b8; border: 1px solid {C_BORDER}; "
+                    f"border-radius: 6px; padding: 5px 10px; font-size: 11px; font-weight: 600; }} "
+                    f"QPushButton:hover {{ border-color: {C_ACCENT}; color: #38bdf8; }}"
+                )
+                btn_view.setCursor(Qt.PointingHandCursor)
+                btn_view.clicked.connect(lambda checked, s=shot, t=c_title: self.view_card_shot(s, t))
+                rh.addWidget(btn_view)
+
+            # 5. Bouton supprimer manuellement
+            btn_delete = QPushButton("🗑️")
+            btn_delete.setFixedSize(28, 28)
+            btn_delete.setToolTip("Supprimer cette carte du Top 10")
+            btn_delete.setStyleSheet(
+                "QPushButton { background: #ef444415; border: 1px solid #ef444433; border-radius: 6px; color: #ef4444; font-size: 11px; } "
+                "QPushButton:hover { background: #ef4444; color: #ffffff; }"
+            )
+            btn_delete.setCursor(Qt.PointingHandCursor)
+            btn_delete.clicked.connect(lambda checked, c_idx=idx, name=c_title: self.delete_card(c_idx, name))
+            rh.addWidget(btn_delete)
+
+            self.cards_layout.addWidget(c_row)
+
+        self.cards_layout.addStretch()
+
+    def view_card_shot(self, shot_path, card_name):
+        if shot_path and os.path.exists(shot_path):
+            dlg = ImageModal(shot_path, f"Tirage — {card_name}", self)
+            dlg.exec()
+
+    def delete_card(self, card_index, card_name):
+        confirm = QMessageBox.question(
+            self, "Supprimer la carte",
+            f"Voulez-vous supprimer '{card_name}' du Top 10 de ce compte ?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if confirm == QMessageBox.Yes:
+            engine.delete_account_card(self.current_acc_id, card_index)
+            self.refresh_cards_view()
 
 class AddAccountDialog(QDialog):
     def __init__(self, default_name="Compte", parent=None):
@@ -797,13 +1057,16 @@ class AccountCard(QFrame):
         mid.addLayout(stats_col)
         layout.addLayout(mid)
 
-        # ── Cartes obtenues ─────────────────────────────────────────────────
-        self.lbl_cards = QLabel("En attente du premier tirage…")
+        # ── Cartes obtenues / Top 10 Preview ───────────────────────────────
+        self.lbl_cards = QLabel("🏆  Top 10 : En attente du premier tirage…")
         self.lbl_cards.setStyleSheet(
             f"font-size:10px; color:{C_MUTED}; font-style:italic; padding:6px 8px;"
             f"background:{C_SURFACE}; border-radius:8px; border:1px solid {C_BORDER};"
         )
         self.lbl_cards.setWordWrap(True)
+        self.lbl_cards.setCursor(Qt.PointingHandCursor)
+        self.lbl_cards.setToolTip("Cliquer pour voir le Top 10 des cartes les plus rares de ce compte")
+        self.lbl_cards.mousePressEvent = lambda e: self.open_top_cards()
         layout.addWidget(self.lbl_cards)
 
         # ── Screenshot preview ─────────────────────────────────────────────
@@ -822,17 +1085,33 @@ class AccountCard(QFrame):
         self.preview_frame.setCursor(Qt.PointingHandCursor)
         layout.addWidget(self.preview_frame)
 
-        # ── Bouton Ouvrir Navigateur Connecté ──────────────────────────────
+        # ── Boutons Milieu : Top 10 + Ouvrir Navigateur ──────────────────
+        mid_btns = QHBoxLayout()
+        mid_btns.setSpacing(6)
+
+        self.btn_top_cards = QPushButton("🏆  Top 10")
+        self.btn_top_cards.setStyleSheet(
+            f"QPushButton {{ background:{C_SURFACE}; color:#e0e7ff; border:1px solid #6366f1; "
+            f"border-radius:8px; padding:6px 8px; font-size:11px; font-weight:700; }} "
+            f"QPushButton:hover {{ background:#312e81; border-color:#818cf8; color:#ffffff; }}"
+        )
+        self.btn_top_cards.setCursor(Qt.PointingHandCursor)
+        self.btn_top_cards.setToolTip("Afficher le classement des 10 meilleures cartes de ce compte")
+        self.btn_top_cards.clicked.connect(self.open_top_cards)
+
         self.btn_open_browser = QPushButton(f"{b_icon}  Ouvrir {b_display}")
         self.btn_open_browser.setStyleSheet(
             f"QPushButton {{ background:{C_SURFACE}; color:{C_TEXT}; border:1px solid {self._accent}77; "
-            f"border-radius:8px; padding:6px 10px; font-size:11px; font-weight:600; }} "
+            f"border-radius:8px; padding:6px 8px; font-size:11px; font-weight:600; }} "
             f"QPushButton:hover {{ background:{self._accent}22; border-color:{self._accent}; color:#ffffff; }}"
         )
         self.btn_open_browser.setCursor(Qt.PointingHandCursor)
         self.btn_open_browser.setToolTip(f"Ouvre une fenêtre {b_display} connectée à WikiMasters avec ce compte")
         self.btn_open_browser.clicked.connect(lambda: self.open_browser_requested.emit(self.account_id))
-        layout.addWidget(self.btn_open_browser)
+
+        mid_btns.addWidget(self.btn_top_cards)
+        mid_btns.addWidget(self.btn_open_browser)
+        layout.addLayout(mid_btns)
 
         # ── Action buttons ──────────────────────────────────────────────────
         btn_row = QHBoxLayout()
@@ -937,6 +1216,7 @@ class AccountCard(QFrame):
 
         self.total_claimed = total_p
         self.lbl_total.setText(f"🎴  Total : {total_p} paquet(s)")
+        self.update_top_cards_preview()
 
     def _load_preview(self, path):
         self.screenshot_path = path
@@ -1017,17 +1297,32 @@ class AccountCard(QFrame):
         if rarity_summary:
             self.lbl_rarity.setText(f"⭐  {rarity_summary}")
 
-        if cards:
-            shown = cards[:3]
-            more  = f"  (+{len(cards)-3})" if len(cards) > 3 else ""
-            self.lbl_cards.setText("  •  " + "  •  ".join(shown) + more)
-            self.lbl_cards.setStyleSheet(
-                f"font-size:10px; color:{C_TEXT}; font-style:normal; padding:6px 8px;"
-                f"background:{C_SURFACE}; border-radius:8px; border:1px solid {self._accent}44;"
-            )
+        self.update_top_cards_preview()
 
         if shot_path and os.path.exists(shot_path):
             self._load_preview(shot_path)
+
+    def open_top_cards(self):
+        dlg = TopCardsModal(initial_account_id=self.account_id, parent=self.window())
+        dlg.exec()
+        self.update_top_cards_preview()
+
+    def update_top_cards_preview(self):
+        top = engine.get_account_best_cards(self.account_id)
+        if top:
+            parts = [f"[{c.get('rarity','C')}] {c.get('title','')}" for c in top[:2]]
+            more = f" (+{len(top)-2})" if len(top) > 2 else ""
+            self.lbl_cards.setText("🏆 " + "  •  ".join(parts) + more)
+            self.lbl_cards.setStyleSheet(
+                f"font-size:10px; color:#c7d2fe; font-weight:600; padding:6px 8px;"
+                f"background:{C_SURFACE}; border-radius:8px; border:1px solid #4338ca;"
+            )
+        else:
+            self.lbl_cards.setText("🏆  Top 10 : En attente du premier tirage…")
+            self.lbl_cards.setStyleSheet(
+                f"font-size:10px; color:{C_MUTED}; font-style:italic; padding:6px 8px;"
+                f"background:{C_SURFACE}; border-radius:8px; border:1px solid {C_BORDER};"
+            )
 
     def open_large_preview(self, event=None):
         latest = SCREENSHOTS_DIR / f"{self.account_id}_latest.png"
@@ -1133,6 +1428,16 @@ class MainWindow(QMainWindow):
         self.chk_sound.setToolTip("Alertes sonores")
         self.chk_sound.stateChanged.connect(lambda s: setattr(self, "sound_enabled", s == Qt.Checked))
         hh.addWidget(self.chk_sound)
+
+        btn_top10 = QPushButton("🏆  Top 10")
+        btn_top10.setObjectName("btnSmall")
+        btn_top10.setStyleSheet(
+            "QPushButton { background:#2e1065; color:#f3e8ff; border:1px solid #a855f7; font-weight:700; border-radius:6px; padding:4px 10px; } "
+            "QPushButton:hover { background:#4c1d95; color:white; }"
+        )
+        btn_top10.setToolTip("Consulter le Top 10 des cartes les plus rares conservées par compte")
+        btn_top10.clicked.connect(self.open_top_cards)
+        hh.addWidget(btn_top10)
 
         btn_hist = QPushButton("📜  Historique")
         btn_hist.setObjectName("btnSmall")
@@ -1391,6 +1696,12 @@ class MainWindow(QMainWindow):
                 self.lbl_next_pull.setText("⏱  Prochain : bientôt…")
             else:
                 self.lbl_next_pull.setText("⏱  Prochain : —")
+
+    def open_top_cards(self):
+        dlg = TopCardsModal(parent=self)
+        dlg.exec()
+        for card in self.account_cards.values():
+            card.update_top_cards_preview()
 
     def open_history(self):
         dlg = HistoryModal(self)
