@@ -119,7 +119,24 @@ def format_rarity_summary(rarities_list):
 
 def load_config():
     if not CONFIG_FILE.exists():
-        raise FileNotFoundError(f"Fichier de configuration introuvable : {CONFIG_FILE}")
+        example_cfg = BASE_DIR / "config.example.json"
+        if example_cfg.exists():
+            try:
+                import shutil
+                shutil.copy(example_cfg, CONFIG_FILE)
+            except Exception:
+                pass
+        if not CONFIG_FILE.exists():
+            default_cfg = {
+                "target_url": "https://wiki-masters.com/pulls",
+                "check_interval_seconds": 600,
+                "random_jitter_seconds": 15,
+                "headless": True,
+                "chrome_executable": get_chrome_executable(),
+                "accounts": []
+            }
+            save_config(default_cfg)
+            return default_cfg
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -409,22 +426,20 @@ def extract_timer_seconds(page):
             parts = t_match.group(1).split(":")
             return int(parts[0]) * 60 + int(parts[1])
 
-        # Chercher également dans les locators spécifiques
+        # Chercher dans les locators contenant 'Prochain dans'
         try:
             for el in page.locator("*:has-text('Prochain dans')").all():
                 txt = el.inner_text()
-                m = re.search(r'([0-9]{1,2}):([0-9]{2})', txt)
+                m = re.search(r'Prochain dans\s*([0-9]{1,2}):([0-9]{2})', txt, re.IGNORECASE)
                 if m:
                     return int(m.group(1)) * 60 + int(m.group(2))
         except Exception:
             pass
 
-        matches = re.findall(r'\b([0-5]?[0-9]):([0-5][0-9])\b', body_text)
-        if matches:
-            for mins, secs in matches:
-                m_int, s_int = int(mins), int(secs)
-                if m_int <= 10:
-                    return m_int * 60 + s_int
+        # Mot-clé proche avec MM:SS (pour éviter de matcher des dates ou heures de l'historique)
+        t_near = re.search(r'(?:prochain|dans|attente|minute)[^\n\r\d]{0,25}([0-9]{1,2}):([0-9]{2})', body_text, re.IGNORECASE)
+        if t_near:
+            return int(t_near.group(1)) * 60 + int(t_near.group(2))
     except Exception:
         pass
     return None
@@ -443,6 +458,12 @@ def extract_stock_count(page):
             elif has_active_open:
                 return 1
             return 0
+
+        m_p = re.search(r'(\d+)\s*paquet', body_text, re.IGNORECASE)
+        if m_p:
+            count = int(m_p.group(1))
+            if count > 0:
+                return count
 
         if has_active_open:
             return 1
@@ -541,10 +562,15 @@ def claim_account(account_id, headless=True, status_callback=None):
                 page.goto(target_url, wait_until="domcontentloaded", timeout=25000)
 
             # S'assurer que Next.js a fini d'hydrater les paquets et compteurs
-            try:
-                page.wait_for_selector("text=paquets disponibles, text=Prochain dans, button:has-text('Ouvrir')", timeout=10000)
-            except Exception:
-                time.sleep(2.0)
+            for _ in range(12):
+                ouvrir_btn_init = page.locator("button:has-text('Ouvrir'):not([disabled])").first
+                if ouvrir_btn_init.count() > 0 and ouvrir_btn_init.is_visible() and ouvrir_btn_init.is_enabled():
+                    break
+                b_text = page.inner_text("body")
+                if "Prochain dans" in b_text:
+                    time.sleep(0.5)
+                    break
+                time.sleep(0.5)
 
             # Résoudre immédiatement la modale interne 'Vérification rapide' si affichée
             check_and_handle_verification_modal(page, status_callback)
@@ -594,6 +620,12 @@ def claim_account(account_id, headless=True, status_callback=None):
                 ouvrir_btn = page.locator("button:has-text('Ouvrir'):not([disabled])").first
 
                 is_btn_ready = (ouvrir_btn.count() > 0 and ouvrir_btn.is_visible() and ouvrir_btn.is_enabled())
+
+                # Si le stock affiche >= 1 mais que le bouton met un instant à devenir cliquable
+                if stock > 0 and not is_btn_ready:
+                    time.sleep(1.5)
+                    ouvrir_btn = page.locator("button:has-text('Ouvrir'):not([disabled])").first
+                    is_btn_ready = (ouvrir_btn.count() > 0 and ouvrir_btn.is_visible() and ouvrir_btn.is_enabled())
 
                 if not is_btn_ready and stock == 0:
                     break
@@ -679,10 +711,16 @@ def claim_account(account_id, headless=True, status_callback=None):
             final_stock = extract_stock_count(page)
             timer_sec = extract_timer_seconds(page)
             if timer_sec is None:
-                time.sleep(1.0)
+                time.sleep(1.5)
                 timer_sec = extract_timer_seconds(page)
             if timer_sec is None:
-                timer_sec = 600
+                # Si le timer n'a pas pu être lu, revérifier rapidement dans 60s
+                # au lieu de bloquer l'application pendant 10 minutes (600s) !
+                timer_sec = 60
+
+            # Si des paquets sont encore disponibles (stock > 0), revérifier dans 5s
+            if final_stock > 0:
+                timer_sec = 5
 
             mins = timer_sec // 60
             secs = timer_sec % 60
