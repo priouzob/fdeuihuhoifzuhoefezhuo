@@ -113,10 +113,18 @@ def perform_update(status_callback=None, timeout=5):
     files_to_download = remote_data.get("files", DEFAULT_FILES)
 
     # Sécurité absolue : interdiction de toucher aux fichiers utilisateur
-    FORBIDDEN_FILES = ["config.json", "history.json", "stats.json", "profiles"]
+    # Ces fichiers contiennent les cookies, sessions et données persos de chaque utilisateur
+    FORBIDDEN_FILES = [
+        "config.json", "history.json", "stats.json",
+        "profiles", "screenshots",          # dossiers entiers bloqués
+        ".bak", ".log", ".tmp",             # fichiers temporaires/backup
+    ]
     files_to_download = [
         f for f in files_to_download
         if not any(forbidden in f.lower() for forbidden in FORBIDDEN_FILES)
+        and not f.startswith("/")           # pas de chemins absolus
+        and ".." not in f                  # pas de path traversal
+        and f.endswith(".py")              # uniquement des fichiers Python
     ]
 
     log(f"Téléchargement de la mise à jour v{remote_v}...")
