@@ -46,7 +46,8 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QProgressBar, QFrame, QScrollArea,
     QTextEdit, QDialog, QMessageBox, QListWidget, QListWidgetItem,
-    QCheckBox, QSizePolicy, QInputDialog, QLineEdit, QRadioButton
+    QCheckBox, QSizePolicy, QInputDialog, QLineEdit, QRadioButton,
+    QButtonGroup
 )
 from PySide6.QtCore import Qt, QTimer, QThread, Signal, Slot, QSize, QRect
 from PySide6.QtGui import QFont, QIcon, QPixmap, QColor, QPainter, QLinearGradient, QPen, QBrush
@@ -551,6 +552,39 @@ class DonutTimer(QWidget):
         painter.setFont(f)
         painter.drawText(rect, Qt.AlignCenter, self._text)
 
+class ClickableFrame(QFrame):
+    clicked = Signal()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+class AddAccountCard(ClickableFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(160, 310)
+        self.setStyleSheet(
+            f"QFrame {{ background: {C_SURFACE}; border: 2px dashed {C_BORDER2}; border-radius: 16px; }} "
+            f"QFrame:hover {{ border-color: {C_ACCENT}; background: #111d2e; }}"
+        )
+        self.setCursor(Qt.PointingHandCursor)
+        af_layout = QVBoxLayout(self)
+        af_layout.setAlignment(Qt.AlignCenter)
+        af_layout.setSpacing(8)
+
+        lbl_plus = QLabel("➕")
+        lbl_plus.setStyleSheet("font-size: 28px; border:none; background:transparent;")
+        lbl_plus.setAlignment(Qt.AlignCenter)
+        lbl_txt = QLabel("Ajouter un\ncompte")
+        lbl_txt.setStyleSheet("font-size: 13px; font-weight: bold; color: #94a3b8; border:none; background:transparent;")
+        lbl_txt.setAlignment(Qt.AlignCenter)
+
+        af_layout.addWidget(lbl_plus)
+        af_layout.addWidget(lbl_txt)
+
 # ─── Account Card ────────────────────────────────────────────────────────────
 
 class AccountCard(QFrame):
@@ -718,7 +752,7 @@ class AccountCard(QFrame):
         layout.addWidget(self.lbl_cards)
 
         # ── Screenshot preview ─────────────────────────────────────────────
-        self.preview_frame = QFrame()
+        self.preview_frame = ClickableFrame()
         self.preview_frame.setFixedHeight(85)
         self.preview_frame.setStyleSheet(
             f"background:{C_BG}; border:1px dashed {C_BORDER}; border-radius:10px;"
@@ -729,7 +763,7 @@ class AccountCard(QFrame):
         self.preview_img.setAlignment(Qt.AlignCenter)
         self.preview_img.setStyleSheet(f"color:{C_BORDER2}; font-size:10px; border:none; background:transparent;")
         prev_layout.addWidget(self.preview_img)
-        self.preview_frame.mousePressEvent = self.open_large_preview
+        self.preview_frame.clicked.connect(self.open_large_preview)
         self.preview_frame.setCursor(Qt.PointingHandCursor)
         layout.addWidget(self.preview_frame)
 
@@ -1180,43 +1214,28 @@ class MainWindow(QMainWindow):
             self.cards_layout.addWidget(card)
             self.account_cards[acc["id"]] = card
 
-        # Ajouter une carte visuelle 'Ajouter un compte'
-        self.add_account_frame = QFrame()
-        self.add_account_frame.setFixedSize(160, 310)
-        self.add_account_frame.setStyleSheet(
-            f"QFrame {{ background: {C_SURFACE}; border: 2px dashed {C_BORDER2}; border-radius: 16px; }} "
-            f"QFrame:hover {{ border-color: {C_ACCENT}; background: #111d2e; }}"
-        )
-        self.add_account_frame.setCursor(Qt.PointingHandCursor)
-        af_layout = QVBoxLayout(self.add_account_frame)
-        af_layout.setAlignment(Qt.AlignCenter)
-        af_layout.setSpacing(8)
-
-        lbl_plus = QLabel("➕")
-        lbl_plus.setStyleSheet("font-size: 28px; border:none; background:transparent;")
-        lbl_plus.setAlignment(Qt.AlignCenter)
-        lbl_txt = QLabel("Ajouter un\ncompte")
-        lbl_txt.setStyleSheet("font-size: 13px; font-weight: bold; color: #94a3b8; border:none; background:transparent;")
-        lbl_txt.setAlignment(Qt.AlignCenter)
-
-        af_layout.addWidget(lbl_plus)
-        af_layout.addWidget(lbl_txt)
-        self.add_account_frame.mousePressEvent = lambda e: self.prompt_add_account()
+        # Ajouter la carte interactive 'Ajouter un compte'
+        self.add_account_frame = AddAccountCard(self)
+        self.add_account_frame.clicked.connect(self.prompt_add_account)
         self.cards_layout.addWidget(self.add_account_frame)
 
     def prompt_add_account(self):
-        dlg = AddAccountDialog(default_name=f"Compte {len(self.account_cards) + 1}", parent=self)
-        if dlg.exec() and dlg.confirmed:
-            name = dlg.account_name
-            start_url = dlg.start_url
-            b_type = dlg.browser_type
-            b_name = dlg.browser_name
-            new_acc = engine.add_new_account(name, browser_type=b_type)
-            self.reload_account_cards()
-            self.update_global_stats()
-            action_desc = "création" if "/signup" in start_url else "connexion"
-            self.log(f"➕ Compte '{name}' créé avec {b_name} ! Ouverture pour {action_desc}…", "success")
-            self.start_account_setup(new_acc["id"], start_url=start_url)
+        try:
+            dlg = AddAccountDialog(default_name=f"Compte {len(self.account_cards) + 1}", parent=self)
+            if dlg.exec() and dlg.confirmed:
+                name = dlg.account_name
+                start_url = dlg.start_url
+                b_type = dlg.browser_type
+                b_name = dlg.browser_name
+                new_acc = engine.add_new_account(name, browser_type=b_type)
+                self.reload_account_cards()
+                self.update_global_stats()
+                action_desc = "création" if "/signup" in start_url else "connexion"
+                self.log(f"➕ Compte '{name}' créé avec {b_name} ! Ouverture pour {action_desc}…", "success")
+                self.start_account_setup(new_acc["id"], start_url=start_url)
+        except Exception as e:
+            write_debug(f"Erreur prompt_add_account : {e}\n{traceback.format_exc()}")
+            self.log(f"✕ Erreur lors de l'ajout du compte : {e}", "error")
 
     def handle_account_renamed(self, account_id, new_name):
         self.log(f"✏️  Compte renommé en '{new_name}' avec succès !", "success")
