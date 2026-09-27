@@ -741,7 +741,7 @@ class AccountCard(QFrame):
         name_col.addLayout(title_row)
         name_col.addWidget(self.sub_lbl)
 
-        hrow.addWidget(icon_lbl)
+        hrow.addWidget(self.icon_lbl)
         hrow.addLayout(name_col)
         hrow.addStretch()
 
