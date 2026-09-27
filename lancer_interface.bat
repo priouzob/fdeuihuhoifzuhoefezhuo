@@ -20,8 +20,8 @@ if %errorlevel% neq 0 (
 python -c "import PySide6" >nul 2>&1
 if %errorlevel% neq 0 (
     echo ====================================================================
-    echo Les composants necessaires (PySide6) ne sont pas encore installes.
-    echo Lancement automatique de l'installation (installer.bat)...
+    echo Les composants necessaires [PySide6] ne sont pas encore installes.
+    echo Lancement automatique de l'installation : installer.bat...
     echo ====================================================================
     call "%~dp0installer.bat"
 )
