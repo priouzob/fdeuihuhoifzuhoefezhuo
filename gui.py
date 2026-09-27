@@ -208,32 +208,69 @@ class ImageModal(QDialog):
     def __init__(self, image_path, title, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.resize(1000, 680)
+        self.image_path = str(image_path)
+        self.original_pixmap = QPixmap(self.image_path)
+        self.resize(1050, 700)
+        self.setMinimumSize(600, 420)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint | Qt.WindowMinimizeButtonHint)
         self.setStyleSheet(DARK_STYLE + f"QDialog{{background:{C_BG};}}")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(14)
 
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(12)
+
+        top_bar = QHBoxLayout()
         title_lbl = QLabel(f"📸  {title}")
         title_lbl.setStyleSheet(f"font-size:16px; font-weight:700; color:{C_ACCENT2};")
-        layout.addWidget(title_lbl)
+        top_bar.addWidget(title_lbl)
+        top_bar.addStretch()
 
-        lbl = QLabel()
-        lbl.setAlignment(Qt.AlignCenter)
-        lbl.setStyleSheet(f"background:{C_CARD}; border:1px solid {C_BORDER}; border-radius:12px; padding:8px;")
-        pix = QPixmap(image_path)
-        if not pix.isNull():
-            lbl.setPixmap(pix.scaled(960, 580, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        else:
-            lbl.setText("Image introuvable ou en cours de génération.")
-            lbl.setStyleSheet(f"color:{C_MUTED}; font-size:14px;")
-        layout.addWidget(lbl)
+        btn_open_external = QPushButton("🔍  Afficheur Windows (100% Plein écran)")
+        btn_open_external.setStyleSheet(
+            f"QPushButton {{ background:{C_SURFACE}; color:{C_TEXT}; border:1px solid {C_BORDER2}; "
+            f"border-radius:6px; padding:6px 12px; font-size:11px; font-weight:600; }} "
+            f"QPushButton:hover {{ border-color:{C_ACCENT}; color:#38bdf8; }}"
+        )
+        btn_open_external.setToolTip("Ouvrir la capture dans l'application Photos de Windows en pleine résolution")
+        btn_open_external.clicked.connect(self.open_in_windows)
+        top_bar.addWidget(btn_open_external)
+
+        layout.addLayout(top_bar)
+
+        self.img_lbl = QLabel()
+        self.img_lbl.setAlignment(Qt.AlignCenter)
+        self.img_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.img_lbl.setStyleSheet(f"background:{C_CARD}; border:1px solid {C_BORDER}; border-radius:12px; padding:6px;")
+        layout.addWidget(self.img_lbl, 1)
 
         btn_close = QPushButton("✕  Fermer")
         btn_close.setObjectName("btnPrimary")
         btn_close.setFixedWidth(120)
         btn_close.clicked.connect(self.close)
         layout.addWidget(btn_close, alignment=Qt.AlignCenter)
+
+        self.update_image()
+
+    def update_image(self):
+        if not self.original_pixmap.isNull():
+            w = max(self.img_lbl.width() - 20, 200)
+            h = max(self.img_lbl.height() - 20, 200)
+            scaled = self.original_pixmap.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.img_lbl.setPixmap(scaled)
+        else:
+            self.img_lbl.setText("Image introuvable ou en cours de génération.")
+            self.img_lbl.setStyleSheet(f"color:{C_MUTED}; font-size:14px;")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.update_image()
+
+    def open_in_windows(self):
+        if os.path.exists(self.image_path):
+            try:
+                os.startfile(self.image_path)
+            except Exception:
+                pass
 
 class HistoryModal(QDialog):
     def __init__(self, parent=None):
@@ -565,7 +602,7 @@ class ClickableFrame(QFrame):
 class AddAccountCard(ClickableFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(160, 310)
+        self.setFixedWidth(160)
         self.setStyleSheet(
             f"QFrame {{ background: {C_SURFACE}; border: 2px dashed {C_BORDER2}; border-radius: 16px; }} "
             f"QFrame:hover {{ border-color: {C_ACCENT}; background: #111d2e; }}"
@@ -594,6 +631,7 @@ class AccountCard(QFrame):
     finish_setup_requested = Signal(str)
     delete_requested = Signal(str)
     rename_requested = Signal(str, str)
+    open_browser_requested = Signal(str)
 
     def __init__(self, account_id, title, theme_idx=0, parent=None):
         super().__init__(parent)
@@ -630,6 +668,16 @@ class AccountCard(QFrame):
         self.hydrate_from_history()
         self.update_configured_state()
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+            child = self.childAt(pos)
+            if child in (self, self.title_lbl, self.sub_lbl, self.icon_lbl, self.donut, self.lbl_stock, self.lbl_total, self.lbl_rarity, self.lbl_last_time, self.lbl_cards):
+                self.open_browser_requested.emit(self.account_id)
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(15, 14, 15, 14)
@@ -643,18 +691,21 @@ class AccountCard(QFrame):
         b_type = acc.get("browser_type", "chrome").lower()
         b_map = {
             "chrome": ("🌐", "Google Chrome"),
-            "brave":  ("🦁", "Brave Browser"),
+            "brave":  ("🦁", "Brave"),
             "edge":   ("🌊", "Microsoft Edge"),
             "opera":  ("🔴", "Opera"),
         }
         b_icon, b_display = b_map.get(b_type, ("🌐", "Google Chrome"))
 
-        icon_lbl = QLabel(b_icon)
-        icon_lbl.setFixedSize(34, 34)
-        icon_lbl.setAlignment(Qt.AlignCenter)
-        icon_lbl.setStyleSheet(
+        self.icon_lbl = QLabel(b_icon)
+        self.icon_lbl.setFixedSize(34, 34)
+        self.icon_lbl.setAlignment(Qt.AlignCenter)
+        self.icon_lbl.setCursor(Qt.PointingHandCursor)
+        self.icon_lbl.setToolTip(f"Cliquer pour ouvrir {b_display} connecté avec la session de ce compte")
+        self.icon_lbl.setStyleSheet(
             f"font-size:18px; background:{self._accent}22; border-radius:9px; border:1px solid {self._accent}44;"
         )
+        self.icon_lbl.mousePressEvent = lambda e: self.open_browser_requested.emit(self.account_id)
 
         name_col = QVBoxLayout()
         name_col.setSpacing(2)
@@ -665,7 +716,8 @@ class AccountCard(QFrame):
         self.title_lbl = QLabel(self.title_text)
         self.title_lbl.setStyleSheet(f"font-size:13px; font-weight:700; color:{C_TEXT};")
         self.title_lbl.setCursor(Qt.PointingHandCursor)
-        self.title_lbl.setToolTip("Double-cliquez pour renommer ce compte")
+        self.title_lbl.setToolTip(f"Cliquer pour ouvrir {b_display} connecté (Double-clic pour renommer)")
+        self.title_lbl.mousePressEvent = lambda e: self.open_browser_requested.emit(self.account_id)
         self.title_lbl.mouseDoubleClickEvent = lambda e: self.prompt_rename()
 
         btn_rename = QPushButton("✏️")
@@ -683,6 +735,9 @@ class AccountCard(QFrame):
 
         self.sub_lbl = QLabel(f"Profil {b_display}")
         self.sub_lbl.setStyleSheet(f"font-size:10px; color:{C_MUTED};")
+        self.sub_lbl.setCursor(Qt.PointingHandCursor)
+        self.sub_lbl.setToolTip(f"Cliquer pour ouvrir {b_display} connecté")
+        self.sub_lbl.mousePressEvent = lambda e: self.open_browser_requested.emit(self.account_id)
         name_col.addLayout(title_row)
         name_col.addWidget(self.sub_lbl)
 
@@ -767,13 +822,25 @@ class AccountCard(QFrame):
         self.preview_frame.setCursor(Qt.PointingHandCursor)
         layout.addWidget(self.preview_frame)
 
+        # ── Bouton Ouvrir Navigateur Connecté ──────────────────────────────
+        self.btn_open_browser = QPushButton(f"{b_icon}  Ouvrir {b_display}")
+        self.btn_open_browser.setStyleSheet(
+            f"QPushButton {{ background:{C_SURFACE}; color:{C_TEXT}; border:1px solid {self._accent}77; "
+            f"border-radius:8px; padding:6px 10px; font-size:11px; font-weight:600; }} "
+            f"QPushButton:hover {{ background:{self._accent}22; border-color:{self._accent}; color:#ffffff; }}"
+        )
+        self.btn_open_browser.setCursor(Qt.PointingHandCursor)
+        self.btn_open_browser.setToolTip(f"Ouvre une fenêtre {b_display} connectée à WikiMasters avec ce compte")
+        self.btn_open_browser.clicked.connect(lambda: self.open_browser_requested.emit(self.account_id))
+        layout.addWidget(self.btn_open_browser)
+
         # ── Action buttons ──────────────────────────────────────────────────
         btn_row = QHBoxLayout()
         btn_row.setSpacing(6)
 
         self.btn_setup = QPushButton("🔑  Connecter")
         self.btn_setup.clicked.connect(self.on_setup_clicked)
-        self.btn_setup.setToolTip("Ouvrir Chrome pour connecter ce compte")
+        self.btn_setup.setToolTip(f"Ouvrir {b_display} pour connecter ou reconfigurer ce compte")
 
         self.btn_claim = QPushButton("⚡  Tirer")
         self.btn_claim.setObjectName("btnPrimary")
@@ -962,12 +1029,19 @@ class AccountCard(QFrame):
         if shot_path and os.path.exists(shot_path):
             self._load_preview(shot_path)
 
-    def open_large_preview(self, event):
+    def open_large_preview(self, event=None):
         latest = SCREENSHOTS_DIR / f"{self.account_id}_latest.png"
         path = str(latest) if latest.exists() else self.screenshot_path
         if path and os.path.exists(path):
             dlg = ImageModal(path, f"Dernier tirage — {self.title_text}", self)
             dlg.exec()
+        else:
+            QMessageBox.information(
+                self,
+                "Aperçu du tirage",
+                f"Aucune capture de tirage disponible pour '{self.title_text}'.\n\n"
+                "Effectuez un premier tirage avec le bouton ⚡ Tirer pour capturer les cartes obtenues !"
+            )
 
 # ─── Main Window ─────────────────────────────────────────────────────────────
 
@@ -975,8 +1049,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("WikiMasters Auto-Claimer — Google Chrome Multi-Comptes")
-        self.resize(1120, 780)
-        self.setMinimumSize(920, 680)
+        self.resize(1120, 820)
+        self.setMinimumSize(920, 700)
         self.setStyleSheet(DARK_STYLE)
 
         self.is_running    = True
@@ -1125,7 +1199,7 @@ class MainWindow(QMainWindow):
         # Scroll Area pour les cartes de comptes
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFixedHeight(340)
+        scroll.setFixedHeight(385)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
@@ -1211,6 +1285,7 @@ class MainWindow(QMainWindow):
             card.finish_setup_requested.connect(self.finish_account_setup)
             card.delete_requested.connect(self.confirm_delete_account)
             card.rename_requested.connect(self.handle_account_renamed)
+            card.open_browser_requested.connect(self.launch_account_browser)
             self.cards_layout.addWidget(card)
             self.account_cards[acc["id"]] = card
 
@@ -1258,6 +1333,19 @@ class MainWindow(QMainWindow):
             self.reload_account_cards()
             self.update_global_stats()
             self.log(f"🗑️ Compte '{name}' et ses données locales supprimés.", "warning")
+
+    def launch_account_browser(self, account_id):
+        acc = engine.get_account_info(account_id)
+        name = acc.get("name", account_id)
+        b_type = acc.get("browser_type", "chrome")
+        b_name = engine.SUPPORTED_BROWSERS.get(b_type, {}).get("name", "Navigateur")
+        self.log(f"🌐 Lancement de {b_name} pour '{name}'...", "info")
+        ok, msg = engine.open_account_browser(account_id)
+        if ok:
+            self.log(f"✅ {msg}", "success")
+        else:
+            self.log(f"✕ {msg}", "error")
+            QMessageBox.warning(self, "Erreur de lancement", f"Impossible d'ouvrir le navigateur pour '{name}' :\n\n{msg}")
 
     # ── Slots & Logic ────────────────────────────────────────────────────────
 
