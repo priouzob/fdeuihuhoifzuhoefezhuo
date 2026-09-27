@@ -313,25 +313,27 @@ class HistoryModal(QDialog):
 class AddAccountDialog(QDialog):
     def __init__(self, default_name="Compte", parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Ajouter un compte — Google Chrome")
-        self.setFixedWidth(450)
+        self.setWindowTitle("Ajouter un compte — WikiMasters")
+        self.setFixedWidth(470)
         self.setStyleSheet(DARK_STYLE)
 
         self.account_name = default_name
         self.start_url = "https://wiki-masters.com/signup"
+        self.browser_type = "chrome"
+        self.browser_name = "Google Chrome"
         self.confirmed = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 22, 24, 22)
-        layout.setSpacing(14)
+        layout.setSpacing(12)
 
-        title_lbl = QLabel("➕  Ajouter un compte Google Chrome")
-        title_lbl.setStyleSheet(f"font-size:15px; font-weight:800; color:{C_TEXT};")
+        title_lbl = QLabel("➕  Ajouter un nouveau compte")
+        title_lbl.setStyleSheet(f"font-size:16px; font-weight:800; color:{C_TEXT};")
         layout.addWidget(title_lbl)
 
         desc_lbl = QLabel(
-            "Un profil Google Chrome dédié et hermétique sera créé. "
-            "Vos identifiants et cookies y restent enregistrés de manière permanente."
+            "Un profil hermétique et indépendant sera créé. "
+            "Vos identifiants et cookies y restent enregistrés de manière 100% privée en local."
         )
         desc_lbl.setStyleSheet(f"font-size:11px; color:{C_MUTED};")
         desc_lbl.setWordWrap(True)
@@ -339,6 +341,7 @@ class AddAccountDialog(QDialog):
 
         layout.addWidget(make_separator())
 
+        # 1. Nom du compte
         name_title = QLabel("Nom du compte dans l'application :")
         name_title.setStyleSheet(f"font-size:12px; font-weight:600; color:{C_TEXT};")
         layout.addWidget(name_title)
@@ -351,21 +354,57 @@ class AddAccountDialog(QDialog):
         )
         layout.addWidget(self.name_input)
 
+        # 2. Choix du navigateur
+        browser_title = QLabel("Navigateur à utiliser :")
+        browser_title.setStyleSheet(f"font-size:12px; font-weight:600; color:{C_TEXT}; margin-top:4px;")
+        layout.addWidget(browser_title)
+
+        available = engine.get_available_browsers()
+        self.browser_group = QButtonGroup(self)
+
+        chrome_ok = available.get("chrome", {}).get("installed", False)
+        brave_ok  = available.get("brave", {}).get("installed", False)
+        edge_ok   = available.get("edge", {}).get("installed", False)
+        opera_ok  = available.get("opera", {}).get("installed", False)
+
+        self.radio_chrome = QRadioButton(f"🌐  Google Chrome {'(Installé)' if chrome_ok else '(Non détecté)'}")
+        self.radio_brave  = QRadioButton(f"🦁  Brave Browser {'(Installé)' if brave_ok else '(Non détecté)'}")
+        self.radio_edge   = QRadioButton(f"🌊  Microsoft Edge {'(Installé)' if edge_ok else '(Non détecté)'}")
+        self.radio_opera  = QRadioButton(f"🔴  Opera / Opera GX {'(Installé)' if opera_ok else '(Non détecté)'}")
+
+        for r in [self.radio_chrome, self.radio_brave, self.radio_edge, self.radio_opera]:
+            r.setStyleSheet(f"QRadioButton {{ color:{C_TEXT}; font-size:12px; padding:2px 0; }}")
+            self.browser_group.addButton(r)
+            layout.addWidget(r)
+
+        if chrome_ok:
+            self.radio_chrome.setChecked(True)
+        elif brave_ok:
+            self.radio_brave.setChecked(True)
+        elif edge_ok:
+            self.radio_edge.setChecked(True)
+        else:
+            self.radio_chrome.setChecked(True)
+
+        # 3. Action
         action_title = QLabel("Action à effectuer :")
         action_title.setStyleSheet(f"font-size:12px; font-weight:600; color:{C_TEXT}; margin-top:4px;")
         layout.addWidget(action_title)
 
+        self.action_group = QButtonGroup(self)
         self.radio_create = QRadioButton("🌟  Créer un nouveau compte WikiMasters (Inscription)")
         self.radio_create.setChecked(True)
-        self.radio_create.setStyleSheet(f"QRadioButton {{ color:{C_TEXT}; font-size:12px; padding:3px 0; }}")
+        self.radio_create.setStyleSheet(f"QRadioButton {{ color:{C_TEXT}; font-size:12px; padding:2px 0; }}")
 
         self.radio_login = QRadioButton("🔑  Connecter un compte WikiMasters déjà existant (Connexion)")
-        self.radio_login.setStyleSheet(f"QRadioButton {{ color:{C_TEXT}; font-size:12px; padding:3px 0; }}")
+        self.radio_login.setStyleSheet(f"QRadioButton {{ color:{C_TEXT}; font-size:12px; padding:2px 0; }}")
 
+        self.action_group.addButton(self.radio_create)
+        self.action_group.addButton(self.radio_login)
         layout.addWidget(self.radio_create)
         layout.addWidget(self.radio_login)
 
-        hint_lbl = QLabel("💡 Dès que la création ou connexion est finie, le compte sera instantanément synchronisé et prêt pour les tirages.")
+        hint_lbl = QLabel("💡 Une fois connecté dans le navigateur, fermez-le ou cliquez sur 'J'ai fini' : le compte sera immédiatement synchronisé.")
         hint_lbl.setStyleSheet(f"font-size:10px; color:{C_TEAL}; font-style:italic;")
         hint_lbl.setWordWrap(True)
         layout.addWidget(hint_lbl)
@@ -380,10 +419,10 @@ class AddAccountDialog(QDialog):
         btn_cancel.clicked.connect(self.reject)
         btn_box.addWidget(btn_cancel)
 
-        btn_submit = QPushButton("🚀  Ouvrir Chrome")
-        btn_submit.setObjectName("btnPrimary")
-        btn_submit.clicked.connect(self.on_submit)
-        btn_box.addWidget(btn_submit)
+        self.btn_submit = QPushButton("🚀  Lancer la configuration")
+        self.btn_submit.setObjectName("btnPrimary")
+        self.btn_submit.clicked.connect(self.on_submit)
+        btn_box.addWidget(self.btn_submit)
 
         layout.addLayout(btn_box)
 
@@ -393,6 +432,20 @@ class AddAccountDialog(QDialog):
             QMessageBox.warning(self, "Nom requis", "Veuillez entrer un nom pour ce compte.")
             return
         self.account_name = name
+
+        if self.radio_brave.isChecked():
+            self.browser_type = "brave"
+            self.browser_name = "Brave Browser"
+        elif self.radio_edge.isChecked():
+            self.browser_type = "edge"
+            self.browser_name = "Microsoft Edge"
+        elif self.radio_opera.isChecked():
+            self.browser_type = "opera"
+            self.browser_name = "Opera"
+        else:
+            self.browser_type = "chrome"
+            self.browser_name = "Google Chrome"
+
         if self.radio_create.isChecked():
             self.start_url = "https://wiki-masters.com/signup"
         else:
@@ -552,7 +605,17 @@ class AccountCard(QFrame):
         hrow = QHBoxLayout()
         hrow.setSpacing(8)
 
-        icon_lbl = QLabel(self.icon_symbol)
+        acc = engine.get_account_info(self.account_id)
+        b_type = acc.get("browser_type", "chrome").lower()
+        b_map = {
+            "chrome": ("🌐", "Google Chrome"),
+            "brave":  ("🦁", "Brave Browser"),
+            "edge":   ("🌊", "Microsoft Edge"),
+            "opera":  ("🔴", "Opera"),
+        }
+        b_icon, b_display = b_map.get(b_type, ("🌐", "Google Chrome"))
+
+        icon_lbl = QLabel(b_icon)
         icon_lbl.setFixedSize(34, 34)
         icon_lbl.setAlignment(Qt.AlignCenter)
         icon_lbl.setStyleSheet(
@@ -584,7 +647,7 @@ class AccountCard(QFrame):
         title_row.addWidget(btn_rename)
         title_row.addStretch()
 
-        self.sub_lbl = QLabel("Profil Google Chrome")
+        self.sub_lbl = QLabel(f"Profil {b_display}")
         self.sub_lbl.setStyleSheet(f"font-size:10px; color:{C_MUTED};")
         name_col.addLayout(title_row)
         name_col.addWidget(self.sub_lbl)
@@ -600,10 +663,13 @@ class AccountCard(QFrame):
         )
         hrow.addWidget(self.status_badge)
 
-        btn_del = QPushButton("✕")
-        btn_del.setFixedSize(20, 20)
-        btn_del.setToolTip(f"Supprimer {self.title_text}")
-        btn_del.setStyleSheet("QPushButton{background:transparent; border:none; color:#6b7280; font-size:11px; font-weight:bold;} QPushButton:hover{color:#ef4444;}")
+        btn_del = QPushButton("🗑️")
+        btn_del.setFixedSize(26, 26)
+        btn_del.setToolTip(f"Supprimer le compte {self.title_text}")
+        btn_del.setStyleSheet(
+            "QPushButton { background:#ef444418; border:1px solid #ef444440; border-radius:6px; color:#ef4444; font-size:12px; padding:0; } "
+            "QPushButton:hover { background:#ef4444; color:#ffffff; font-weight:bold; }"
+        )
         btn_del.clicked.connect(lambda: self.delete_requested.emit(self.account_id))
         hrow.addWidget(btn_del)
 
@@ -1143,11 +1209,13 @@ class MainWindow(QMainWindow):
         if dlg.exec() and dlg.confirmed:
             name = dlg.account_name
             start_url = dlg.start_url
-            new_acc = engine.add_new_account(name)
+            b_type = dlg.browser_type
+            b_name = dlg.browser_name
+            new_acc = engine.add_new_account(name, browser_type=b_type)
             self.reload_account_cards()
             self.update_global_stats()
             action_desc = "création" if "/signup" in start_url else "connexion"
-            self.log(f"➕ Compte '{name}' créé ! Ouverture de Chrome pour {action_desc}…", "success")
+            self.log(f"➕ Compte '{name}' créé avec {b_name} ! Ouverture pour {action_desc}…", "success")
             self.start_account_setup(new_acc["id"], start_url=start_url)
 
     def handle_account_renamed(self, account_id, new_name):
@@ -1156,16 +1224,21 @@ class MainWindow(QMainWindow):
     def confirm_delete_account(self, account_id):
         acc = engine.get_account_info(account_id)
         name = acc.get("name", account_id)
-        reply = QMessageBox.question(
-            self, "Confirmation",
-            f"Voulez-vous vraiment retirer {name} de l'application ?",
-            QMessageBox.Yes | QMessageBox.No
-        )
-        if reply == QMessageBox.Yes:
-            engine.delete_account(account_id)
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Supprimer le compte")
+        msg_box.setText(f"Voulez-vous vraiment supprimer le compte '{name}' ?")
+        msg_box.setInformativeText("Cette action retirera ce compte de l'application et supprimera sa session locale.")
+        msg_box.setIcon(QMessageBox.Warning)
+        btn_del = msg_box.addButton("🗑️ Supprimer", QMessageBox.YesRole)
+        btn_cancel = msg_box.addButton("Annuler", QMessageBox.NoRole)
+        msg_box.setDefaultButton(btn_cancel)
+        msg_box.exec()
+
+        if msg_box.clickedButton() == btn_del:
+            engine.delete_account(account_id, remove_files=True)
             self.reload_account_cards()
             self.update_global_stats()
-            self.log(f"🗑 {name} retiré de l'application.", "info")
+            self.log(f"🗑️ Compte '{name}' et ses données locales supprimés.", "warning")
 
     # ── Slots & Logic ────────────────────────────────────────────────────────
 
@@ -1456,8 +1529,10 @@ class MainWindow(QMainWindow):
 
         acc = engine.get_account_info(account_id)
         name = acc.get("name", account_id)
+        b_type = acc.get("browser_type", "chrome")
+        b_name = engine.SUPPORTED_BROWSERS.get(b_type, {}).get("name", "Navigateur")
         action_name = "création / inscription" if "/signup" in start_url else "connexion"
-        self.log(f"🔑  Ouverture de Google Chrome pour {name} ({action_name})…", "info")
+        self.log(f"🔑  Ouverture de {b_name} pour {name} ({action_name})…", "info")
         self.setup_worker = SetupWorker(account_id, start_url=start_url)
         self.setup_worker.log_signal.connect(self.log)
         self.setup_worker.finished_signal.connect(self.handle_setup_finished)
