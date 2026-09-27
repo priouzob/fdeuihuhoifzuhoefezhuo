@@ -1358,6 +1358,15 @@ class MainWindow(QMainWindow):
 
         self.init_ui()
 
+        # Empêcher la mise en veille de Windows pendant le farm automatique nocturne
+        try:
+            import ctypes
+            ES_CONTINUOUS = 0x80000000
+            ES_SYSTEM_REQUIRED = 0x00000001
+            ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+        except Exception:
+            pass
+
         self.clock_timer = QTimer(self)
         self.clock_timer.timeout.connect(self.tick_clock)
         self.clock_timer.start(1000)
