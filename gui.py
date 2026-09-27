@@ -1787,6 +1787,19 @@ class MainWindow(QMainWindow):
             self.live_dot.setStyleSheet(
                 f"color:{C_GREEN if self.live_visible else C_BORDER2}; font-size:12px;"
             )
+            # Rechargement automatique et transparent du Top 10 sans redémarrer le logiciel
+            try:
+                bc_file = engine.BEST_CARDS_FILE
+                if bc_file.exists():
+                    mtime = bc_file.stat().st_mtime
+                    if not hasattr(self, "_last_bc_mtime"):
+                        self._last_bc_mtime = mtime
+                    elif mtime != self._last_bc_mtime:
+                        self._last_bc_mtime = mtime
+                        for card in self.account_cards.values():
+                            card.update_top_cards_preview()
+            except Exception:
+                pass
 
         if not self.is_running:
             return

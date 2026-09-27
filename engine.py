@@ -170,7 +170,9 @@ def save_history(entry):
         packs = entry.get("packs_count", 1)
         if b_key:
             update_lifetime_stats(b_key, packs)
-            if entry.get("cards") and entry.get("rarities"):
+            if entry.get("card_objects"):
+                register_pulled_cards(b_key, entry["card_objects"])
+            elif entry.get("cards") and entry.get("rarities"):
                 register_pulled_cards(
                     b_key,
                     entry["cards"],
@@ -249,7 +251,7 @@ def get_account_best_cards(account_id):
     best_cards = load_best_cards()
     return best_cards.get(account_id, [])
 
-def register_pulled_cards(account_id, cards_list, rarities_list, timestamp=None, screenshot=None):
+def register_pulled_cards(account_id, cards_list, rarities_list=None, timestamp=None, screenshot=None):
     """
     Enregistre les nouvelles cartes tirées pour un compte.
     Ne conserve strictement que les 10 cartes les plus rares (L, UR, SR, R, PC, C).
@@ -260,30 +262,59 @@ def register_pulled_cards(account_id, cards_list, rarities_list, timestamp=None,
     if account_id not in best_cards:
         best_cards[account_id] = []
 
-    ts = timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts_default = timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    blacklist = {"ouvrir un paquet", "ouvrir", "paquet", "continuer", "carte", ""}
 
-    for title, rarity in zip(cards_list, rarities_list):
-        if not title:
-            continue
-        r_code = str(rarity).upper().strip() if rarity else "C"
-        if r_code not in RARITY_RANKS:
-            r_code = "C"
+    # Si cards_list contient déjà des dictionnaires complets avec screenshot individuel
+    if cards_list and isinstance(cards_list[0], dict):
+        for card_obj in cards_list:
+            t = str(card_obj.get("title", "")).strip()
+            if not t or len(t) < 3 or t.lower() in blacklist:
+                continue
+            r = str(card_obj.get("rarity", "C")).upper().strip()
+            if r not in RARITY_RANKS:
+                r = "C"
+            best_cards[account_id].append({
+                "title": t,
+                "rarity": r,
+                "timestamp": card_obj.get("timestamp") or ts_default,
+                "screenshot": card_obj.get("screenshot") or ""
+            })
+    else:
+        rarities_list = rarities_list or []
+        for title, rarity in zip(cards_list, rarities_list):
+            if not title or not isinstance(title, str):
+                continue
+            t = title.strip()
+            if not t or len(t) < 3 or t.lower() in blacklist:
+                continue
+            r_code = str(rarity).upper().strip() if rarity else "C"
+            if r_code not in RARITY_RANKS:
+                r_code = "C"
+            best_cards[account_id].append({
+                "title": t,
+                "rarity": r_code,
+                "timestamp": ts_default,
+                "screenshot": screenshot or ""
+            })
 
-        best_cards[account_id].append({
-            "title": title,
-            "rarity": r_code,
-            "timestamp": ts,
-            "screenshot": screenshot or ""
-        })
+    # Dédoublonnage exact
+    seen = set()
+    unique = []
+    for c in best_cards[account_id]:
+        k = (c.get("title"), c.get("rarity"), c.get("timestamp"))
+        if k not in seen:
+            seen.add(k)
+            unique.append(c)
 
     # Tri par rareté décroissante (L > UR > SR > R > PC > C), puis date décroissante
-    best_cards[account_id].sort(
+    unique.sort(
         key=lambda x: (RARITY_RANKS.get(x.get("rarity", "C"), 0), x.get("timestamp", "")),
         reverse=True
     )
 
     # Garde strictement le TOP 10 (suppression automatique au-delà de 10)
-    best_cards[account_id] = best_cards[account_id][:10]
+    best_cards[account_id] = unique[:10]
     save_best_cards(best_cards)
     return best_cards[account_id]
 
@@ -738,13 +769,18 @@ def extract_stock_count(page):
 
 def extract_current_card_details(page):
     """
-    Extrait instantanément le titre et la rareté de la carte affichée.
-    Consommation CPU quasi-nulle car l'arbre DOM est déjà en mémoire.
+    Extrait le titre et la rareté de la carte actuellement affichée.
+    Filtre rigoureusement les boutons d'interface (Ouvrir, Continuer, etc.).
     """
     title = ""
     rarity = "C"
+    blacklist_words = [
+        "carte", "encore", "wikimasters", "points", "continuer", "ouvrir",
+        "paquet", "stock", "collection", "marché", "bataille", "profil",
+        "succès", "classement", "connexion", "déconnexion", "échanges"
+    ]
     try:
-        # 1. Rareté : badge en haut à gauche
+        # 1. Rareté : badge officiel en haut à gauche
         badges = page.locator("div[class*='top-2'][class*='left-2'], span[class*='top-2'][class*='left-2']").all()
         for b in badges:
             txt = b.inner_text().strip().upper()
@@ -761,18 +797,20 @@ def extract_current_card_details(page):
                         rarity = code.upper()
                         break
 
-        # 2. Titre de la carte
+        # 2. Titre de la carte : chercher en priorité dans h3 (titre officiel)
         headings = page.locator("h3").all()
         for h in headings:
             txt = h.inner_text().strip()
-            if txt and 2 < len(txt) < 90 and "carte" not in txt.lower():
+            if txt and 2 < len(txt) < 90 and not any(w in txt.lower() for w in blacklist_words):
                 title = txt
                 break
+
+        # Fallback si h3 n'est pas encore présent : éléments en gras dans le conteneur de carte
         if not title:
-            bolds = page.locator("[class*='font-bold'], strong").all()
+            bolds = page.locator("div[class*='card'] strong, div[class*='card'] [class*='font-bold'], [class*='font-bold'], strong").all()
             for b in bolds:
                 txt = b.inner_text().strip()
-                if txt and 2 < len(txt) < 70 and not any(w in txt.lower() for w in ["carte", "encore", "wikimasters", "points", "continuer"]):
+                if txt and 2 < len(txt) < 70 and not any(w in txt.lower() for w in blacklist_words):
                     title = txt
                     break
     except Exception:
@@ -876,6 +914,7 @@ def claim_account(account_id, headless=True, status_callback=None):
             total_packs_opened = 0
             all_pulled_cards = []
             all_rarities = []
+            all_pulled_card_objects = []
             latest_screenshot = None
             last_pack_rarity_summary = ""
 
@@ -914,45 +953,55 @@ def claim_account(account_id, headless=True, status_callback=None):
 
                 total_packs_opened += 1
 
-                # Attente fluide de l'apparition des cartes
-                human_delay(2.2, 3.2)
+                # Attente fluide de l'apparition de la première carte
+                human_delay(2.2, 3.0)
 
                 pack_cards = []
                 pack_rarities = []
+                pack_card_objects = []
 
-                # Révélation des 5 cartes
+                # Révélation précise des 5 cartes du paquet
                 for card_idx in range(5):
+                    # Laisser le temps à l'animation 3D de rotation de se stabiliser
+                    human_delay(1.2, 1.8)
+
                     card_title, card_rarity = extract_current_card_details(page)
-                    if card_title and card_title not in pack_cards:
-                        pack_cards.append(card_title)
+                    # Si le titre n'est pas encore apparu dans le DOM, court délai et seconde lecture
+                    if not card_title:
+                        time.sleep(0.6)
+                        card_title, card_rarity = extract_current_card_details(page)
+
+                    if not card_title:
+                        card_title = f"Carte #{card_idx + 1}"
+
+                    pack_cards.append(card_title)
                     pack_rarities.append(card_rarity)
 
-                    if card_idx == 4:
-                        # Attendre que l'animation 3D de rotation de la 5ème carte soit 100% terminée et stable
-                        time.sleep(1.8)
-                        # Ré-extraire au cas où le texte s'est affiché après la rotation
-                        c_title, c_rarity = extract_current_card_details(page)
-                        if c_title and c_title not in pack_cards:
-                            pack_cards[-1] = c_title
-                        if c_rarity:
-                            pack_rarities[-1] = c_rarity
+                    # Capture d'écran individuelle dédiée pour cette carte exacte
+                    ts_now = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    card_shot_path = str(SCREENSHOTS_DIR / f"{account_id}_{ts_now}_p{current_pack_num}_c{card_idx+1}.png")
+                    latest_screenshot = str(SCREENSHOTS_DIR / f"{account_id}_latest.png")
+                    try:
+                        page.screenshot(path=card_shot_path)
+                        page.screenshot(path=latest_screenshot)
+                    except Exception:
+                        card_shot_path = ""
 
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        latest_screenshot = str(SCREENSHOTS_DIR / f"{account_id}_latest.png")
-                        archive_shot = str(SCREENSHOTS_DIR / f"{account_id}_{timestamp}.png")
-                        try:
-                            page.screenshot(path=latest_screenshot)
-                            page.screenshot(path=archive_shot)
-                        except Exception:
-                            pass
+                    pack_card_objects.append({
+                        "title": card_title,
+                        "rarity": card_rarity,
+                        "screenshot": card_shot_path,
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    })
 
-                    # Flèche suivante
-                    arrow_next = page.locator("button:has(polyline[points='9 18 15 12 9 6']):not([disabled])").first
-                    if arrow_next.count() > 0 and arrow_next.is_visible() and arrow_next.is_enabled():
-                        human_delay(0.4, 0.9)
-                        human_click(page, arrow_next)
-                    else:
-                        human_delay(0.3, 0.6)
+                    # Flèche suivante pour passer à la carte suivante
+                    if card_idx < 4:
+                        arrow_next = page.locator("button:has(polyline[points='9 18 15 12 9 6']):not([disabled])").first
+                        if arrow_next.count() > 0 and arrow_next.is_visible() and arrow_next.is_enabled():
+                            human_delay(0.4, 0.8)
+                            human_click(page, arrow_next)
+                        else:
+                            human_delay(0.3, 0.6)
 
                 # Validation finale du paquet par 'Continuer'
                 continuer_btn = page.locator("button:has-text('Continuer'):not([disabled])").first
@@ -967,6 +1016,7 @@ def claim_account(account_id, headless=True, status_callback=None):
 
                 all_pulled_cards.extend(pack_cards)
                 all_rarities.extend(pack_rarities)
+                all_pulled_card_objects.extend(pack_card_objects)
                 last_pack_rarity_summary = format_rarity_summary(pack_rarities)
 
                 safe_notify(status_callback, f"[{name}] ✅ Paquet #{current_pack_num} validé ! ({last_pack_rarity_summary})", "success")
@@ -1001,6 +1051,7 @@ def claim_account(account_id, headless=True, status_callback=None):
                     "packs_count": total_packs_opened,
                     "cards": all_pulled_cards,
                     "rarities": all_rarities,
+                    "card_objects": all_pulled_card_objects,
                     "rarity_summary": global_rarity_summary,
                     "screenshot": latest_screenshot
                 })
