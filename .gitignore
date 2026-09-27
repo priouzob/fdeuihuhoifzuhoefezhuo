@@ -1,0 +1,42 @@
+# =====================================================================
+# SÉCURITÉ ABSOLUE : SESSIONS, COOKIES ET DONNÉES PERSONNELLES
+# Ces dossiers et fichiers ne doivent JAMAIS être envoyés sur GitHub
+# Chaque utilisateur garde ses données uniquement en local
+# =====================================================================
+
+# Profils Chrome avec sessions et cookies connectés (DONNÉES PERSOS)
+profiles/
+profiles/*
+
+# Données personnelles locales de comptes et d'historique
+config.json
+history.json
+stats.json
+
+# Captures d'écran (contiennent infos de compte)
+screenshots/
+screenshots/*
+
+# Fichiers de sauvegarde créés par l'updater
+*.bak
+
+# Logs et fichiers temporaires
+gui_debug.log
+*.tmp
+*.new
+*.log
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Archives et packages (ne pas partager, chacun crée le sien)
+*.zip
+pack_ami/
+WikiMasters_Pour_Ami.zip
+
+# Fichiers IDE / système
+.DS_Store
+Thumbs.db
+desktop.ini
