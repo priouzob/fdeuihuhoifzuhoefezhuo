@@ -1,0 +1,1513 @@
+"""
+WikiMasters Auto-Claimer — Version Multi-Comptes 100% Google Chrome
+Dashboard companion pour second écran :
+- Tous les comptes tournent désormais sur Google Chrome avec des profils isolés étanches
+- Bouton '➕ Ajouter un compte' pour connecter autant de comptes que désiré
+- Synchronisation en direct des comptes à rebours et du stock
+- Rareté des cartes obtenues (C, PC, R, SR, UR, L)
+- Résolution automatique discrète de la pop-up 'Vérification rapide'
+- Consommation de ressources ultra-faible (<0.1% CPU au repos, 0% Chromium entre les tirages)
+"""
+
+import os
+import sys
+import time
+import json
+import traceback
+from pathlib import Path
+from datetime import datetime
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+BASE_DIR = Path(__file__).parent.resolve()
+DEBUG_LOG = BASE_DIR / "gui_debug.log"
+SCREENSHOTS_DIR = BASE_DIR / "screenshots"
+SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+
+def write_debug(msg):
+    try:
+        with open(DEBUG_LOG, "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
+    except Exception:
+        pass
+
+def handle_exception(exc_type, exc_value, exc_traceback):
+    err = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+    write_debug(f"CRASH FATAL:\n{err}")
+
+sys.excepthook = handle_exception
+
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QProgressBar, QFrame, QScrollArea,
+    QTextEdit, QDialog, QMessageBox, QListWidget, QListWidgetItem,
+    QCheckBox, QSizePolicy, QInputDialog, QLineEdit, QRadioButton
+)
+from PySide6.QtCore import Qt, QTimer, QThread, Signal, Slot, QSize, QRect
+from PySide6.QtGui import QFont, QIcon, QPixmap, QColor, QPainter, QLinearGradient, QPen, QBrush
+
+import engine
+import updater
+
+# ─── Palette de couleurs ────────────────────────────────────────────────────
+C_BG       = "#07090f"
+C_SURFACE  = "#0d1117"
+C_CARD     = "#111827"
+C_BORDER   = "#1f2937"
+C_BORDER2  = "#374151"
+C_TEXT     = "#f1f5f9"
+C_MUTED    = "#6b7280"
+C_ACCENT   = "#38bdf8"
+C_ACCENT2  = "#60a5fa"
+C_GREEN    = "#22c55e"
+C_YELLOW   = "#f59e0b"
+C_RED      = "#ef4444"
+C_PURPLE   = "#a78bfa"
+C_TEAL     = "#2dd4bf"
+
+ACCOUNT_THEMES = [
+    ("stop:0 #1a2a4a, stop:1 #0d1a2e", "#38bdf8", "🌐"),
+    ("stop:0 #2a1a0a, stop:1 #1a0d05", "#fb923c", "🦊"),
+    ("stop:0 #2a0a2a, stop:1 #1a051a", "#c084fc", "🔮"),
+    ("stop:0 #0a2a1a, stop:1 #051a0d", "#4ade80", "🍀"),
+    ("stop:0 #2a0a14, stop:1 #1a050d", "#f43f5e", "💎"),
+    ("stop:0 #1e293b, stop:1 #0f172a", "#94a3b8", "⭐"),
+]
+
+DARK_STYLE = f"""
+QMainWindow, QDialog {{
+    background-color: {C_BG};
+}}
+QWidget {{
+    color: {C_TEXT};
+    font-family: 'Segoe UI', 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: 12px;
+}}
+QFrame#statsBar, QFrame#logFrame, QFrame#headerFrame {{
+    background-color: {C_SURFACE};
+    border: 1px solid {C_BORDER};
+    border-radius: 12px;
+}}
+QPushButton {{
+    background-color: {C_SURFACE};
+    color: {C_TEXT};
+    border: 1px solid {C_BORDER2};
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-weight: 600;
+    font-size: 12px;
+}}
+QPushButton:hover {{
+    background-color: #1f2937;
+    border-color: {C_ACCENT};
+    color: {C_ACCENT2};
+}}
+QPushButton:pressed {{
+    background-color: #111827;
+}}
+QPushButton#btnPrimary {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #0369a1);
+    border: 1px solid #38bdf8;
+    color: white;
+}}
+QPushButton#btnPrimary:hover {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0369a1, stop:1 #075985);
+}}
+QPushButton#btnSuccess {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #15803d, stop:1 #16a34a);
+    border: 1px solid {C_GREEN};
+    color: white;
+}}
+QPushButton#btnSuccess:hover {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #166534, stop:1 #15803d);
+}}
+QPushButton#btnDanger {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #b91c1c, stop:1 #dc2626);
+    border: 1px solid {C_RED};
+    color: white;
+}}
+QPushButton#btnWarn {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #b45309, stop:1 #d97706);
+    border: 1px solid {C_YELLOW};
+    color: white;
+}}
+QPushButton#btnSmall {{
+    padding: 4px 10px;
+    font-size: 11px;
+    border-radius: 6px;
+}}
+QPushButton#btnIcon {{
+    padding: 5px 8px;
+    font-size: 13px;
+    border-radius: 8px;
+    min-width: 32px;
+    max-width: 32px;
+}}
+QTextEdit, QListWidget {{
+    background-color: {C_BG};
+    border: none;
+    border-radius: 8px;
+    color: #9ca3af;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 11px;
+    padding: 6px;
+}}
+QScrollBar:vertical {{
+    border: none;
+    background: {C_SURFACE};
+    width: 6px;
+    border-radius: 3px;
+}}
+QScrollBar::handle:vertical {{
+    background: {C_BORDER2};
+    border-radius: 3px;
+}}
+QScrollBar:horizontal {{
+    border: none;
+    background: {C_SURFACE};
+    height: 6px;
+    border-radius: 3px;
+}}
+QScrollBar::handle:horizontal {{
+    background: {C_BORDER2};
+    border-radius: 3px;
+}}
+QCheckBox {{
+    font-size: 12px;
+    color: {C_MUTED};
+    spacing: 6px;
+}}
+QCheckBox::indicator {{
+    width: 15px;
+    height: 15px;
+    border-radius: 4px;
+    border: 1px solid {C_BORDER2};
+    background-color: {C_SURFACE};
+}}
+QCheckBox::indicator:checked {{
+    background-color: {C_ACCENT};
+    border-color: {C_ACCENT2};
+}}
+"""
+
+def make_separator():
+    sep = QFrame()
+    sep.setFrameShape(QFrame.HLine)
+    sep.setStyleSheet(f"color:{C_BORDER}; background:{C_BORDER}; max-height:1px;")
+    return sep
+
+# ─── Modals ──────────────────────────────────────────────────────────────────
+
+class ImageModal(QDialog):
+    def __init__(self, image_path, title, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.resize(1000, 680)
+        self.setStyleSheet(DARK_STYLE + f"QDialog{{background:{C_BG};}}")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
+
+        title_lbl = QLabel(f"📸  {title}")
+        title_lbl.setStyleSheet(f"font-size:16px; font-weight:700; color:{C_ACCENT2};")
+        layout.addWidget(title_lbl)
+
+        lbl = QLabel()
+        lbl.setAlignment(Qt.AlignCenter)
+        lbl.setStyleSheet(f"background:{C_CARD}; border:1px solid {C_BORDER}; border-radius:12px; padding:8px;")
+        pix = QPixmap(image_path)
+        if not pix.isNull():
+            lbl.setPixmap(pix.scaled(960, 580, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            lbl.setText("Image introuvable ou en cours de génération.")
+            lbl.setStyleSheet(f"color:{C_MUTED}; font-size:14px;")
+        layout.addWidget(lbl)
+
+        btn_close = QPushButton("✕  Fermer")
+        btn_close.setObjectName("btnPrimary")
+        btn_close.setFixedWidth(120)
+        btn_close.clicked.connect(self.close)
+        layout.addWidget(btn_close, alignment=Qt.AlignCenter)
+
+class HistoryModal(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Historique des tirages WikiMasters")
+        self.resize(840, 580)
+        self.setStyleSheet(DARK_STYLE)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
+
+        hdr = QHBoxLayout()
+        title_lbl = QLabel("📜  Historique des tirages automatiques")
+        title_lbl.setStyleSheet(f"font-size:16px; font-weight:700; color:{C_ACCENT2};")
+        hdr.addWidget(title_lbl)
+        hdr.addStretch()
+
+        btn_clear = QPushButton("🗑  Tout effacer")
+        btn_clear.setObjectName("btnDanger")
+        btn_clear.setObjectName("btnSmall")
+        btn_clear.clicked.connect(self.clear_history)
+        hdr.addWidget(btn_clear)
+        layout.addLayout(hdr)
+
+        layout.addWidget(make_separator())
+
+        self.list_widget = QListWidget()
+        self.list_widget.setStyleSheet(
+            f"QListWidget{{background:{C_SURFACE}; border:1px solid {C_BORDER}; border-radius:10px;}}"
+        )
+        layout.addWidget(self.list_widget)
+        self.refresh_list()
+
+        btn_close = QPushButton("Fermer")
+        btn_close.setFixedWidth(120)
+        btn_close.clicked.connect(self.close)
+        layout.addWidget(btn_close, alignment=Qt.AlignCenter)
+
+    def refresh_list(self):
+        self.list_widget.clear()
+        history = engine.load_history()
+        if not history:
+            item = QListWidgetItem("  Aucun tirage enregistré pour le moment.")
+            item.setForeground(QColor(C_MUTED))
+            self.list_widget.addItem(item)
+            return
+
+        for h in history:
+            ts = h.get("timestamp", "")
+            bkey = h.get("browser_key", "")
+            bname = h.get("browser", bkey)
+            packs = h.get("packs_count", 1)
+            rarity = h.get("rarity_summary", "")
+            cards = h.get("cards", [])
+
+            rarity_part = f"  ⭐ {rarity}" if rarity else ""
+            cards_part = "\n    • " + "\n    • ".join(cards) if cards else ""
+            text = f"🌐 {bname}  —  {ts}  —  {packs} paquet(s){rarity_part}{cards_part}"
+
+            item = QListWidgetItem(text)
+            item.setForeground(QColor(C_TEXT))
+            self.list_widget.addItem(item)
+
+    def clear_history(self):
+        confirm = QMessageBox.question(
+            self, "Confirmation",
+            "Effacer tout l'historique des tirages ?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if confirm == QMessageBox.Yes:
+            try:
+                with open(engine.HISTORY_FILE, "w", encoding="utf-8") as f:
+                    json.dump([], f)
+                self.refresh_list()
+            except Exception:
+                pass
+
+class AddAccountDialog(QDialog):
+    def __init__(self, default_name="Compte", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Ajouter un compte — Google Chrome")
+        self.setFixedWidth(450)
+        self.setStyleSheet(DARK_STYLE)
+
+        self.account_name = default_name
+        self.start_url = "https://wiki-masters.com/signup"
+        self.confirmed = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(14)
+
+        title_lbl = QLabel("➕  Ajouter un compte Google Chrome")
+        title_lbl.setStyleSheet(f"font-size:15px; font-weight:800; color:{C_TEXT};")
+        layout.addWidget(title_lbl)
+
+        desc_lbl = QLabel(
+            "Un profil Google Chrome dédié et hermétique sera créé. "
+            "Vos identifiants et cookies y restent enregistrés de manière permanente."
+        )
+        desc_lbl.setStyleSheet(f"font-size:11px; color:{C_MUTED};")
+        desc_lbl.setWordWrap(True)
+        layout.addWidget(desc_lbl)
+
+        layout.addWidget(make_separator())
+
+        name_title = QLabel("Nom du compte dans l'application :")
+        name_title.setStyleSheet(f"font-size:12px; font-weight:600; color:{C_TEXT};")
+        layout.addWidget(name_title)
+
+        self.name_input = QLineEdit(default_name)
+        self.name_input.setStyleSheet(
+            f"QLineEdit {{ background:{C_SURFACE}; color:{C_TEXT}; border:1px solid {C_BORDER2}; "
+            f"border-radius:8px; padding:8px 12px; font-size:13px; font-weight:600; }}"
+            f"QLineEdit:focus {{ border-color:{C_ACCENT}; }}"
+        )
+        layout.addWidget(self.name_input)
+
+        action_title = QLabel("Action à effectuer :")
+        action_title.setStyleSheet(f"font-size:12px; font-weight:600; color:{C_TEXT}; margin-top:4px;")
+        layout.addWidget(action_title)
+
+        self.radio_create = QRadioButton("🌟  Créer un nouveau compte WikiMasters (Inscription)")
+        self.radio_create.setChecked(True)
+        self.radio_create.setStyleSheet(f"QRadioButton {{ color:{C_TEXT}; font-size:12px; padding:3px 0; }}")
+
+        self.radio_login = QRadioButton("🔑  Connecter un compte WikiMasters déjà existant (Connexion)")
+        self.radio_login.setStyleSheet(f"QRadioButton {{ color:{C_TEXT}; font-size:12px; padding:3px 0; }}")
+
+        layout.addWidget(self.radio_create)
+        layout.addWidget(self.radio_login)
+
+        hint_lbl = QLabel("💡 Dès que la création ou connexion est finie, le compte sera instantanément synchronisé et prêt pour les tirages.")
+        hint_lbl.setStyleSheet(f"font-size:10px; color:{C_TEAL}; font-style:italic;")
+        hint_lbl.setWordWrap(True)
+        layout.addWidget(hint_lbl)
+
+        layout.addWidget(make_separator())
+
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(10)
+        btn_box.addStretch()
+
+        btn_cancel = QPushButton("Annuler")
+        btn_cancel.clicked.connect(self.reject)
+        btn_box.addWidget(btn_cancel)
+
+        btn_submit = QPushButton("🚀  Ouvrir Chrome")
+        btn_submit.setObjectName("btnPrimary")
+        btn_submit.clicked.connect(self.on_submit)
+        btn_box.addWidget(btn_submit)
+
+        layout.addLayout(btn_box)
+
+    def on_submit(self):
+        name = self.name_input.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Nom requis", "Veuillez entrer un nom pour ce compte.")
+            return
+        self.account_name = name
+        if self.radio_create.isChecked():
+            self.start_url = "https://wiki-masters.com/signup"
+        else:
+            self.start_url = "https://wiki-masters.com/login"
+        self.confirmed = True
+        self.accept()
+
+# ─── Workers ─────────────────────────────────────────────────────────────────
+
+class SetupWorker(QThread):
+    log_signal = Signal(str, str)
+    finished_signal = Signal(str, bool, str)
+
+    def __init__(self, account_id, start_url="https://wiki-masters.com/signup"):
+        super().__init__()
+        self.account_id = account_id
+        self.start_url = start_url
+
+    def run(self):
+        success, msg = engine.setup_account(
+            self.account_id,
+            start_url=self.start_url,
+            status_callback=lambda text, level: self.log_signal.emit(text, level)
+        )
+        self.finished_signal.emit(self.account_id, success, msg)
+
+class BackgroundClaimWorker(QThread):
+    log_signal = Signal(str, str)
+    account_result_signal = Signal(str, dict)
+    cycle_finished_signal = Signal()
+
+    def __init__(self, account_ids):
+        super().__init__()
+        self.account_ids = account_ids
+
+    def run(self):
+        for acc_id in self.account_ids:
+            res = engine.claim_account(
+                acc_id,
+                headless=True,
+                status_callback=lambda text, level: self.log_signal.emit(text, level)
+            )
+            self.account_result_signal.emit(acc_id, res)
+            time.sleep(1.0)
+        self.cycle_finished_signal.emit()
+
+# ─── Donut Timer ─────────────────────────────────────────────────────────────
+
+class DonutTimer(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(94, 94)
+        self._value = 0
+        self._max   = 600
+        self._text  = "--:--"
+        self._color = QColor(C_ACCENT)
+        self._active = False
+
+    def set_countdown(self, seconds, total=600):
+        self._value = max(0, min(seconds, total))
+        self._max   = total
+        mins = self._value // 60
+        secs = self._value % 60
+        self._text  = f"{mins:02d}:{secs:02d}"
+        self._active = True
+        self._color = QColor(C_GREEN) if seconds == 0 else QColor(C_ACCENT)
+        self.update()
+
+    def set_idle(self):
+        self._active = False
+        self._text = "--:--"
+        self._color = QColor(C_MUTED)
+        self.update()
+
+    def set_claiming(self):
+        self._active = True
+        self._text = "⟳"
+        self._color = QColor(C_YELLOW)
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        margin = 7
+        rect = QRect(margin, margin, w - 2 * margin, h - 2 * margin)
+
+        pen_track = QPen(QColor(C_BORDER2), 7, Qt.SolidLine, Qt.RoundCap)
+        painter.setPen(pen_track)
+        painter.drawEllipse(rect)
+
+        if self._active and self._max > 0:
+            elapsed = self._max - self._value
+            span = int(360 * 16 * elapsed / self._max)
+            pen_arc = QPen(self._color, 7, Qt.SolidLine, Qt.RoundCap)
+            painter.setPen(pen_arc)
+            painter.drawArc(rect, 90 * 16, -span)
+
+        painter.setPen(QColor(self._color))
+        f = QFont("Segoe UI", 12, QFont.Bold)
+        if len(self._text) <= 2:
+            f.setPointSize(16)
+        painter.setFont(f)
+        painter.drawText(rect, Qt.AlignCenter, self._text)
+
+# ─── Account Card ────────────────────────────────────────────────────────────
+
+class AccountCard(QFrame):
+    setup_requested = Signal(str)
+    claim_requested = Signal(str)
+    refresh_requested = Signal(str)
+    finish_setup_requested = Signal(str)
+    delete_requested = Signal(str)
+    rename_requested = Signal(str, str)
+
+    def __init__(self, account_id, title, theme_idx=0, parent=None):
+        super().__init__(parent)
+        self.account_id = account_id
+        self.title_text = title
+        self.setObjectName("accountCard")
+
+        grad, accent, icon_sym = ACCOUNT_THEMES[theme_idx % len(ACCOUNT_THEMES)]
+        self.icon_symbol = icon_sym
+        self._accent = accent
+
+        self.remaining_seconds = 0
+        self.total_claimed  = 0
+        self.last_claim_time = "Aucun"
+        self.screenshot_path = None
+        self.is_setting_up   = False
+        self.is_connected    = False
+        self.is_claiming     = False
+        self.is_captcha_blocked = False
+
+        self.setFixedWidth(310)
+        self.setStyleSheet(
+            f"QFrame#accountCard {{"
+            f"  background: qlineargradient(x1:0,y1:0,x2:0,y2:1,{grad});"
+            f"  border: 1px solid {C_BORDER};"
+            f"  border-radius: 16px;"
+            f"}}"
+            f"QFrame#accountCard:hover {{"
+            f"  border: 1px solid {accent}55;"
+            f"}}"
+        )
+
+        self.init_ui()
+        self.hydrate_from_history()
+        self.update_configured_state()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 14, 15, 14)
+        layout.setSpacing(10)
+
+        # ── Header row ──────────────────────────────────────────────────────
+        hrow = QHBoxLayout()
+        hrow.setSpacing(8)
+
+        icon_lbl = QLabel(self.icon_symbol)
+        icon_lbl.setFixedSize(34, 34)
+        icon_lbl.setAlignment(Qt.AlignCenter)
+        icon_lbl.setStyleSheet(
+            f"font-size:18px; background:{self._accent}22; border-radius:9px; border:1px solid {self._accent}44;"
+        )
+
+        name_col = QVBoxLayout()
+        name_col.setSpacing(2)
+
+        title_row = QHBoxLayout()
+        title_row.setSpacing(6)
+
+        self.title_lbl = QLabel(self.title_text)
+        self.title_lbl.setStyleSheet(f"font-size:13px; font-weight:700; color:{C_TEXT};")
+        self.title_lbl.setCursor(Qt.PointingHandCursor)
+        self.title_lbl.setToolTip("Double-cliquez pour renommer ce compte")
+        self.title_lbl.mouseDoubleClickEvent = lambda e: self.prompt_rename()
+
+        btn_rename = QPushButton("✏️")
+        btn_rename.setFixedSize(22, 22)
+        btn_rename.setToolTip(f"Renommer {self.title_text}")
+        btn_rename.setStyleSheet(
+            "QPushButton { background: transparent; border: none; color: #94a3b8; font-size: 11px; border-radius: 4px; padding: 0px; } "
+            "QPushButton:hover { background: #1f2937; color: #38bdf8; }"
+        )
+        btn_rename.clicked.connect(self.prompt_rename)
+
+        title_row.addWidget(self.title_lbl)
+        title_row.addWidget(btn_rename)
+        title_row.addStretch()
+
+        self.sub_lbl = QLabel("Profil Google Chrome")
+        self.sub_lbl.setStyleSheet(f"font-size:10px; color:{C_MUTED};")
+        name_col.addLayout(title_row)
+        name_col.addWidget(self.sub_lbl)
+
+        hrow.addWidget(icon_lbl)
+        hrow.addLayout(name_col)
+        hrow.addStretch()
+
+        self.status_badge = QLabel("Non connecté")
+        self.status_badge.setStyleSheet(
+            f"background:#78350f; color:#fde68a; padding:3px 9px; "
+            f"border-radius:999px; font-size:10px; font-weight:700;"
+        )
+        hrow.addWidget(self.status_badge)
+
+        btn_del = QPushButton("✕")
+        btn_del.setFixedSize(20, 20)
+        btn_del.setToolTip(f"Supprimer {self.title_text}")
+        btn_del.setStyleSheet("QPushButton{background:transparent; border:none; color:#6b7280; font-size:11px; font-weight:bold;} QPushButton:hover{color:#ef4444;}")
+        btn_del.clicked.connect(lambda: self.delete_requested.emit(self.account_id))
+        hrow.addWidget(btn_del)
+
+        layout.addLayout(hrow)
+        layout.addWidget(make_separator())
+
+        # ── Timer + Stats row ───────────────────────────────────────────────
+        mid = QHBoxLayout()
+        mid.setSpacing(10)
+
+        self.donut = DonutTimer()
+        mid.addWidget(self.donut)
+
+        stats_col = QVBoxLayout()
+        stats_col.setSpacing(5)
+
+        self.lbl_stock = QLabel("📦  Stock : —")
+        self.lbl_stock.setStyleSheet(f"font-size:12px; font-weight:600; color:{self._accent};")
+
+        self.lbl_total = QLabel("🎴  Total : 0 paquet(s)")
+        self.lbl_total.setStyleSheet(f"font-size:11px; color:{C_MUTED};")
+
+        self.lbl_rarity = QLabel("⭐  Raretés : —")
+        self.lbl_rarity.setStyleSheet(f"font-size:11px; color:{C_TEAL}; font-weight:600;")
+        self.lbl_rarity.setWordWrap(True)
+
+        self.lbl_last_time = QLabel("🕐  Dernier : —")
+        self.lbl_last_time.setStyleSheet(f"font-size:10px; color:{C_MUTED};")
+
+        stats_col.addWidget(self.lbl_stock)
+        stats_col.addWidget(self.lbl_total)
+        stats_col.addWidget(self.lbl_rarity)
+        stats_col.addWidget(self.lbl_last_time)
+        stats_col.addStretch()
+
+        mid.addLayout(stats_col)
+        layout.addLayout(mid)
+
+        # ── Cartes obtenues ─────────────────────────────────────────────────
+        self.lbl_cards = QLabel("En attente du premier tirage…")
+        self.lbl_cards.setStyleSheet(
+            f"font-size:10px; color:{C_MUTED}; font-style:italic; padding:6px 8px;"
+            f"background:{C_SURFACE}; border-radius:8px; border:1px solid {C_BORDER};"
+        )
+        self.lbl_cards.setWordWrap(True)
+        layout.addWidget(self.lbl_cards)
+
+        # ── Screenshot preview ─────────────────────────────────────────────
+        self.preview_frame = QFrame()
+        self.preview_frame.setFixedHeight(85)
+        self.preview_frame.setStyleSheet(
+            f"background:{C_BG}; border:1px dashed {C_BORDER}; border-radius:10px;"
+        )
+        prev_layout = QVBoxLayout(self.preview_frame)
+        prev_layout.setContentsMargins(4, 4, 4, 4)
+        self.preview_img = QLabel("📷  Aperçu du tirage")
+        self.preview_img.setAlignment(Qt.AlignCenter)
+        self.preview_img.setStyleSheet(f"color:{C_BORDER2}; font-size:10px; border:none; background:transparent;")
+        prev_layout.addWidget(self.preview_img)
+        self.preview_frame.mousePressEvent = self.open_large_preview
+        self.preview_frame.setCursor(Qt.PointingHandCursor)
+        layout.addWidget(self.preview_frame)
+
+        # ── Action buttons ──────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(6)
+
+        self.btn_setup = QPushButton("🔑  Connecter")
+        self.btn_setup.clicked.connect(self.on_setup_clicked)
+        self.btn_setup.setToolTip("Ouvrir Chrome pour connecter ce compte")
+
+        self.btn_claim = QPushButton("⚡  Tirer")
+        self.btn_claim.setObjectName("btnPrimary")
+        self.btn_claim.setToolTip("Ouvre immédiatement tous les paquets de ce compte")
+        self.btn_claim.clicked.connect(self.on_claim_clicked)
+
+        self.btn_refresh = QPushButton("↻")
+        self.btn_refresh.setObjectName("btnIcon")
+        self.btn_refresh.setToolTip("Actualiser le stock et le timer")
+        self.btn_refresh.clicked.connect(lambda: self.refresh_requested.emit(self.account_id))
+
+        btn_row.addWidget(self.btn_setup)
+        btn_row.addWidget(self.btn_claim)
+        btn_row.addWidget(self.btn_refresh)
+        layout.addLayout(btn_row)
+
+    # ── Logique ─────────────────────────────────────────────────────────────
+
+    def prompt_rename(self):
+        new_name, ok = QInputDialog.getText(
+            self, "Renommer le compte",
+            f"Nouveau nom pour '{self.title_text}' :",
+            text=self.title_text
+        )
+        if ok and new_name.strip() and new_name.strip() != self.title_text:
+            self.set_account_name(new_name.strip())
+
+    def set_account_name(self, new_name):
+        self.title_text = new_name
+        self.title_lbl.setText(new_name)
+        engine.rename_account(self.account_id, new_name)
+        self.rename_requested.emit(self.account_id, new_name)
+
+    def on_claim_clicked(self):
+        if self.is_captcha_blocked:
+            self.setup_requested.emit(self.account_id)
+        else:
+            self.claim_requested.emit(self.account_id)
+
+    def on_setup_clicked(self):
+        if self.is_setting_up:
+            self.finish_setup_requested.emit(self.account_id)
+        else:
+            self.setup_requested.emit(self.account_id)
+
+    def set_captcha_mode(self, active=True):
+        self.is_captcha_blocked = active
+        if active:
+            self.set_status("⚠️  Anti-Bot", "#92400e", "#fde68a")
+            self.sub_lbl.setText("Défi détecté — cliquez sur Résoudre")
+            self.btn_claim.setObjectName("btnWarn")
+            self.btn_claim.setText("🛠  Résoudre")
+            self.btn_claim.style().unpolish(self.btn_claim)
+            self.btn_claim.style().polish(self.btn_claim)
+        else:
+            self.btn_claim.setText("⚡  Tirer")
+            self.btn_claim.setObjectName("btnPrimary")
+            self.btn_claim.style().unpolish(self.btn_claim)
+            self.btn_claim.style().polish(self.btn_claim)
+            self.update_configured_state()
+
+    def hydrate_from_history(self):
+        history = engine.load_history()
+        lifetime = engine.load_lifetime_stats()
+        total_p = lifetime.get(self.account_id, {}).get("total_packs", 0)
+        if total_p == 0:
+            for entry in history:
+                if entry.get("browser_key") == self.account_id:
+                    total_p += entry.get("packs_count", 1)
+
+        found = False
+        for entry in history:
+            if entry.get("browser_key") == self.account_id:
+                if not found:
+                    found = True
+                    t = entry.get("timestamp", "")
+                    self.lbl_last_time.setText(f"🕐  Dernier : {t}")
+                    rs = entry.get("rarity_summary", "")
+                    if rs:
+                        self.lbl_rarity.setText(f"⭐  {rs}")
+                    cards = entry.get("cards", [])
+                    if cards:
+                        shown = cards[:3]
+                        more  = f"  (+{len(cards)-3})" if len(cards) > 3 else ""
+                        self.lbl_cards.setText("  •  " + "  •  ".join(shown) + more)
+                    shot = entry.get("screenshot")
+                    if shot and os.path.exists(shot):
+                        self._load_preview(shot)
+
+        if not self.screenshot_path:
+            ls = SCREENSHOTS_DIR / f"{self.account_id}_latest.png"
+            if ls.exists():
+                self._load_preview(str(ls))
+
+        self.total_claimed = total_p
+        self.lbl_total.setText(f"🎴  Total : {total_p} paquet(s)")
+
+    def _load_preview(self, path):
+        self.screenshot_path = path
+        pix = QPixmap(path)
+        if not pix.isNull():
+            self.preview_img.setText("")
+            self.preview_img.setPixmap(
+                pix.scaled(270, 75, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            )
+
+    def set_status(self, text, bg, fg):
+        self.status_badge.setText(text)
+        self.status_badge.setStyleSheet(
+            f"background:{bg}; color:{fg}; padding:3px 9px; "
+            f"border-radius:999px; font-size:10px; font-weight:700;"
+        )
+
+    def set_setting_up_mode(self, active=True):
+        self.is_setting_up = active
+        if active:
+            self.set_status("🔄  Config…", "#1e3a5f", "#93c5fd")
+            self.btn_setup.setText("✅  J'ai fini")
+            self.btn_setup.setObjectName("btnSuccess")
+            self.btn_setup.style().unpolish(self.btn_setup)
+            self.btn_setup.style().polish(self.btn_setup)
+            self.sub_lbl.setText("Connexion Chrome en cours…")
+        else:
+            self.btn_setup.setObjectName("")
+            self.btn_setup.style().unpolish(self.btn_setup)
+            self.btn_setup.style().polish(self.btn_setup)
+            self.update_configured_state()
+
+    def update_configured_state(self):
+        is_conf = engine.is_account_configured(self.account_id)
+        if is_conf:
+            self.is_connected = True
+            self.set_status("✅  Prêt", "#14532d", "#86efac")
+            self.btn_setup.setText("🔄  Reconnecter")
+            self.sub_lbl.setText("Prochain paquet dans :")
+        else:
+            self.is_connected = False
+            self.remaining_seconds = 0
+            self.donut.set_idle()
+            self.sub_lbl.setText("Non connecté — cliquez sur Connecter")
+            self.set_status("●  Non connecté", "#451a03", "#fde68a")
+            self.btn_setup.setText("🔑  Connecter")
+
+    def tick_second(self):
+        if self.is_connected and self.remaining_seconds > 0:
+            self.remaining_seconds -= 1
+            self.donut.set_countdown(self.remaining_seconds)
+            if self.remaining_seconds == 0:
+                self.set_status("🎁  Prêt !", "#065f46", "#6ee7b7")
+                self.sub_lbl.setText("Paquet disponible !")
+                self.donut.set_countdown(0)
+
+    def set_countdown(self, seconds):
+        self.is_connected = True
+        self.remaining_seconds = max(0, seconds)
+        self.donut.set_countdown(self.remaining_seconds)
+        self.sub_lbl.setText("Prochain paquet dans :")
+
+    def set_claiming_state(self):
+        self.is_claiming = True
+        self.donut.set_claiming()
+        self.set_status("⟳  En cours…", "#1e3a5f", "#93c5fd")
+        self.sub_lbl.setText("Ouverture des paquets…")
+
+    def update_pack_data(self, stock=None, cards=None, shot_path=None, packs_opened=0, rarity_summary=""):
+        if stock is not None:
+            self.lbl_stock.setText(f"📦  Stock : {stock}")
+
+        if packs_opened > 0:
+            self.total_claimed += packs_opened
+            self.lbl_total.setText(f"🎴  Total : {self.total_claimed} paquet(s)")
+            self.lbl_last_time.setText(f"🕐  Dernier : {datetime.now().strftime('%H:%M:%S')}")
+
+        if rarity_summary:
+            self.lbl_rarity.setText(f"⭐  {rarity_summary}")
+
+        if cards:
+            shown = cards[:3]
+            more  = f"  (+{len(cards)-3})" if len(cards) > 3 else ""
+            self.lbl_cards.setText("  •  " + "  •  ".join(shown) + more)
+            self.lbl_cards.setStyleSheet(
+                f"font-size:10px; color:{C_TEXT}; font-style:normal; padding:6px 8px;"
+                f"background:{C_SURFACE}; border-radius:8px; border:1px solid {self._accent}44;"
+            )
+
+        if shot_path and os.path.exists(shot_path):
+            self._load_preview(shot_path)
+
+    def open_large_preview(self, event):
+        latest = SCREENSHOTS_DIR / f"{self.account_id}_latest.png"
+        path = str(latest) if latest.exists() else self.screenshot_path
+        if path and os.path.exists(path):
+            dlg = ImageModal(path, f"Dernier tirage — {self.title_text}", self)
+            dlg.exec()
+
+# ─── Main Window ─────────────────────────────────────────────────────────────
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("WikiMasters Auto-Claimer — Google Chrome Multi-Comptes")
+        self.resize(1120, 780)
+        self.setMinimumSize(920, 680)
+        self.setStyleSheet(DARK_STYLE)
+
+        self.is_running    = True
+        self.claim_worker  = None
+        self.setup_worker  = None
+        self.sound_enabled = True
+        self._tick_count   = 0
+        self.account_cards = {}
+        self._pending_claim_queue = []
+
+        self.init_ui()
+
+        self.clock_timer = QTimer(self)
+        self.clock_timer.timeout.connect(self.tick_clock)
+        self.clock_timer.start(1000)
+
+        QTimer.singleShot(1500, self._initial_sync)
+        QTimer.singleShot(4000, lambda: self.check_updates_gui(silent_if_none=True))
+
+    def _initial_sync(self):
+        configured = [acc["id"] for acc in engine.get_accounts() if engine.is_account_configured(acc["id"])]
+        if configured:
+            self.log(f"🔍  Synchronisation initiale ({len(configured)} compte(s))…", "info")
+            self.trigger_claim_cycle(configured)
+
+    def init_ui(self):
+        root = QWidget()
+        root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        # ── Top header bar ────────────────────────────────────────────────
+        header_frame = QFrame()
+        header_frame.setObjectName("headerFrame")
+        header_frame.setFixedHeight(62)
+        hh = QHBoxLayout(header_frame)
+        hh.setContentsMargins(20, 0, 20, 0)
+        hh.setSpacing(12)
+
+        logo = QLabel("🎴")
+        logo.setStyleSheet("font-size:22px;")
+        app_title = QLabel("WikiMasters Auto-Claimer")
+        app_title.setStyleSheet(f"font-size:16px; font-weight:800; color:{C_TEXT}; letter-spacing:0.5px;")
+        app_sub = QLabel("100% Google Chrome · Multi-Comptes Furtif")
+        app_sub.setStyleSheet(f"font-size:10px; color:{C_MUTED};")
+        title_col = QVBoxLayout()
+        title_col.setSpacing(0)
+        title_col.addWidget(app_title)
+        title_col.addWidget(app_sub)
+
+        hh.addWidget(logo)
+        hh.addLayout(title_col)
+        hh.addStretch()
+
+        self.stealth_badge = QLabel("🛡  STEALTH")
+        self.stealth_badge.setStyleSheet(
+            f"background:#052e16; color:#4ade80; border:1px solid #166534; "
+            f"padding:4px 12px; border-radius:999px; font-size:10px; font-weight:700; letter-spacing:1px;"
+        )
+        hh.addWidget(self.stealth_badge)
+
+        v_str = updater.get_local_version()
+        self.btn_update = QPushButton(f"🔄 v{v_str}")
+        self.btn_update.setObjectName("btnSmall")
+        self.btn_update.setToolTip("Rechercher des mises à jour sur GitHub (vos comptes et cookies restent préservés)")
+        self.btn_update.setStyleSheet(
+            "QPushButton { background:#1e293b; color:#38bdf8; border:1px solid #0284c7; font-weight:700; border-radius:6px; padding:4px 8px; } "
+            "QPushButton:hover { background:#0369a1; color:white; }"
+        )
+        self.btn_update.clicked.connect(lambda: self.check_updates_gui(silent_if_none=False))
+        hh.addWidget(self.btn_update)
+
+        self.chk_pin = QCheckBox("📌 Épingler")
+        self.chk_pin.setToolTip("Maintenir la fenêtre au premier plan sur second écran")
+        self.chk_pin.stateChanged.connect(self.toggle_always_on_top)
+        hh.addWidget(self.chk_pin)
+
+        self.chk_sound = QCheckBox("🔊")
+        self.chk_sound.setChecked(True)
+        self.chk_sound.setToolTip("Alertes sonores")
+        self.chk_sound.stateChanged.connect(lambda s: setattr(self, "sound_enabled", s == Qt.Checked))
+        hh.addWidget(self.chk_sound)
+
+        btn_hist = QPushButton("📜  Historique")
+        btn_hist.setObjectName("btnSmall")
+        btn_hist.clicked.connect(self.open_history)
+        hh.addWidget(btn_hist)
+
+        self.btn_toggle = QPushButton("⏸  Pause")
+        self.btn_toggle.setObjectName("btnPrimary")
+        self.btn_toggle.setObjectName("btnSmall")
+        self.btn_toggle.clicked.connect(self.toggle_loop)
+        hh.addWidget(self.btn_toggle)
+
+        btn_add = QPushButton("➕  Ajouter un compte")
+        btn_add.setObjectName("btnSmall")
+        btn_add.setStyleSheet(f"background:#1e3a5f; border-color:#38bdf8; color:#e0f2fe; font-weight:700;")
+        btn_add.clicked.connect(self.prompt_add_account)
+        hh.addWidget(btn_add)
+
+        self.btn_force = QPushButton("⚡  Tirer maintenant")
+        self.btn_force.setObjectName("btnSuccess")
+        self.btn_force.setToolTip("Ouvre tous les paquets prêts sur l'ensemble des comptes")
+        self.btn_force.clicked.connect(lambda: self.trigger_claim_cycle())
+        hh.addWidget(self.btn_force)
+
+        root_layout.addWidget(header_frame)
+
+        # ── Stats bar ────────────────────────────────────────────────────
+        stats_frame = QFrame()
+        stats_frame.setObjectName("statsBar")
+        stats_frame.setFixedHeight(42)
+        stats_frame.setStyleSheet(
+            f"QFrame#statsBar{{background:{C_SURFACE}; border-bottom:1px solid {C_BORDER}; border-radius:0px;}}"
+        )
+        sh = QHBoxLayout(stats_frame)
+        sh.setContentsMargins(22, 0, 22, 0)
+        sh.setSpacing(24)
+
+        self.lbl_total_packs = QLabel("📦  Total : 0 paquets ouverts")
+        self.lbl_total_packs.setStyleSheet(f"font-size:11px; font-weight:600; color:{C_YELLOW};")
+        sh.addWidget(self.lbl_total_packs)
+
+        sep1 = QLabel("|")
+        sep1.setStyleSheet(f"color:{C_BORDER2};")
+        sh.addWidget(sep1)
+
+        self.lbl_next_pull = QLabel("⏱  Prochain tirage : —")
+        self.lbl_next_pull.setStyleSheet(f"font-size:11px; font-weight:600; color:{C_ACCENT2};")
+        sh.addWidget(self.lbl_next_pull)
+
+        sh.addStretch()
+
+        self.lbl_status_bar = QLabel("Tous les comptes sont isolés et gérés par Google Chrome.")
+        self.lbl_status_bar.setStyleSheet(f"font-size:10px; color:{C_MUTED};")
+        sh.addWidget(self.lbl_status_bar)
+
+        root_layout.addWidget(stats_frame)
+
+        # ── Main content (Scroll Area for Accounts) ──────────────────────
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(18, 14, 18, 14)
+        content_layout.setSpacing(14)
+
+        # Scroll Area pour les cartes de comptes
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFixedHeight(340)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        self.scroll_content = QWidget()
+        self.scroll_content.setStyleSheet("background: transparent;")
+        self.cards_layout = QHBoxLayout(self.scroll_content)
+        self.cards_layout.setContentsMargins(0, 0, 0, 0)
+        self.cards_layout.setSpacing(14)
+        self.cards_layout.setAlignment(Qt.AlignLeft)
+
+        # Charger dynamiquement les comptes depuis la configuration
+        self.reload_account_cards()
+
+        scroll.setWidget(self.scroll_content)
+        content_layout.addWidget(scroll)
+
+        # ── Log console ──────────────────────────────────────────────────
+        log_frame = QFrame()
+        log_frame.setObjectName("logFrame")
+        log_vl = QVBoxLayout(log_frame)
+        log_vl.setContentsMargins(12, 10, 12, 10)
+        log_vl.setSpacing(6)
+
+        log_header = QHBoxLayout()
+        log_header.setSpacing(8)
+
+        log_lbl = QLabel("◉  Journal d'activité")
+        log_lbl.setStyleSheet(f"font-size:11px; font-weight:700; color:{C_MUTED}; letter-spacing:0.5px;")
+        log_header.addWidget(log_lbl)
+        log_header.addStretch()
+
+        self.live_dot = QLabel("●")
+        self.live_dot.setStyleSheet(f"color:{C_GREEN}; font-size:12px;")
+        log_header.addWidget(self.live_dot)
+        self.live_visible = True
+
+        btn_copy = QPushButton("📋  Copier")
+        btn_copy.setObjectName("btnSmall")
+        btn_copy.setFixedHeight(24)
+        btn_copy.setToolTip("Copie le journal complet dans le presse-papiers")
+        btn_copy.clicked.connect(self.copy_logs)
+        log_header.addWidget(btn_copy)
+
+        btn_clear = QPushButton("🗑  Effacer")
+        btn_clear.setObjectName("btnSmall")
+        btn_clear.setFixedHeight(24)
+        btn_clear.clicked.connect(lambda: self.log_box.clear())
+        log_header.addWidget(btn_clear)
+
+        log_vl.addLayout(log_header)
+
+        self.log_box = QTextEdit()
+        self.log_box.setReadOnly(True)
+        self.log_box.setFixedHeight(130)
+        log_vl.addWidget(self.log_box)
+
+        content_layout.addWidget(log_frame)
+        root_layout.addWidget(content)
+
+        self.setCentralWidget(root)
+        self.update_global_stats()
+        self.log("✅  Interface prête. Tous les profils sont centralisés sur Google Chrome !", "success")
+
+    def reload_account_cards(self):
+        # Nettoyer les anciennes cartes
+        for acc_id, card in list(self.account_cards.items()):
+            self.cards_layout.removeWidget(card)
+            card.deleteLater()
+        self.account_cards.clear()
+
+        # Nettoyer l'éventuel bouton add existant
+        if hasattr(self, "add_account_frame") and self.add_account_frame:
+            self.cards_layout.removeWidget(self.add_account_frame)
+            self.add_account_frame.deleteLater()
+
+        accounts = engine.get_accounts()
+        for idx, acc in enumerate(accounts):
+            card = AccountCard(acc["id"], acc.get("name", f"Compte {idx+1}"), theme_idx=idx, parent=self)
+            card.setup_requested.connect(self.start_account_setup)
+            card.claim_requested.connect(self.start_single_claim)
+            card.refresh_requested.connect(self.start_single_refresh)
+            card.finish_setup_requested.connect(self.finish_account_setup)
+            card.delete_requested.connect(self.confirm_delete_account)
+            card.rename_requested.connect(self.handle_account_renamed)
+            self.cards_layout.addWidget(card)
+            self.account_cards[acc["id"]] = card
+
+        # Ajouter une carte visuelle 'Ajouter un compte'
+        self.add_account_frame = QFrame()
+        self.add_account_frame.setFixedSize(160, 310)
+        self.add_account_frame.setStyleSheet(
+            f"QFrame {{ background: {C_SURFACE}; border: 2px dashed {C_BORDER2}; border-radius: 16px; }} "
+            f"QFrame:hover {{ border-color: {C_ACCENT}; background: #111d2e; }}"
+        )
+        self.add_account_frame.setCursor(Qt.PointingHandCursor)
+        af_layout = QVBoxLayout(self.add_account_frame)
+        af_layout.setAlignment(Qt.AlignCenter)
+        af_layout.setSpacing(8)
+
+        lbl_plus = QLabel("➕")
+        lbl_plus.setStyleSheet("font-size: 28px; border:none; background:transparent;")
+        lbl_plus.setAlignment(Qt.AlignCenter)
+        lbl_txt = QLabel("Ajouter un\ncompte")
+        lbl_txt.setStyleSheet("font-size: 13px; font-weight: bold; color: #94a3b8; border:none; background:transparent;")
+        lbl_txt.setAlignment(Qt.AlignCenter)
+
+        af_layout.addWidget(lbl_plus)
+        af_layout.addWidget(lbl_txt)
+        self.add_account_frame.mousePressEvent = lambda e: self.prompt_add_account()
+        self.cards_layout.addWidget(self.add_account_frame)
+
+    def prompt_add_account(self):
+        dlg = AddAccountDialog(default_name=f"Compte {len(self.account_cards) + 1}", parent=self)
+        if dlg.exec() and dlg.confirmed:
+            name = dlg.account_name
+            start_url = dlg.start_url
+            new_acc = engine.add_new_account(name)
+            self.reload_account_cards()
+            self.update_global_stats()
+            action_desc = "création" if "/signup" in start_url else "connexion"
+            self.log(f"➕ Compte '{name}' créé ! Ouverture de Chrome pour {action_desc}…", "success")
+            self.start_account_setup(new_acc["id"], start_url=start_url)
+
+    def handle_account_renamed(self, account_id, new_name):
+        self.log(f"✏️  Compte renommé en '{new_name}' avec succès !", "success")
+
+    def confirm_delete_account(self, account_id):
+        acc = engine.get_account_info(account_id)
+        name = acc.get("name", account_id)
+        reply = QMessageBox.question(
+            self, "Confirmation",
+            f"Voulez-vous vraiment retirer {name} de l'application ?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            engine.delete_account(account_id)
+            self.reload_account_cards()
+            self.update_global_stats()
+            self.log(f"🗑 {name} retiré de l'application.", "info")
+
+    # ── Slots & Logic ────────────────────────────────────────────────────────
+
+    def copy_logs(self):
+        text = self.log_box.toPlainText()
+        QApplication.clipboard().setText(text)
+        self.log("📋  Journal copié dans le presse-papiers !", "success")
+
+    def toggle_always_on_top(self, state):
+        if state == Qt.Checked:
+            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+            self.show()
+            self.log("📌  Fenêtre épinglée au premier plan.", "info")
+        else:
+            self.setWindowFlags(self.windowFlags() & ~Qt.WindowStaysOnTopHint)
+            self.show()
+            self.log("📌  Épinglage désactivé.", "info")
+
+    def play_chime(self):
+        if self.sound_enabled:
+            try:
+                import winsound
+                winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            except Exception:
+                pass
+
+    def update_global_stats(self):
+        lifetime = engine.load_lifetime_stats()
+        total = sum(s.get("total_packs", 0) for s in lifetime.values())
+        if total == 0:
+            history = engine.load_history()
+            total = sum(h.get("packs_count", 1) for h in history)
+        self.lbl_total_packs.setText(f"📦  Total : {total} paquet(s) ouverts")
+
+        cards = list(self.account_cards.values())
+        active = [c.remaining_seconds for c in cards if c.is_connected and c.remaining_seconds > 0]
+        if active:
+            s = min(active)
+            self.lbl_next_pull.setText(f"⏱  Prochain : {s//60:02d}:{s%60:02d}")
+        else:
+            connected = [c for c in cards if c.is_connected]
+            if connected:
+                self.lbl_next_pull.setText("⏱  Prochain : bientôt…")
+            else:
+                self.lbl_next_pull.setText("⏱  Prochain : —")
+
+    def open_history(self):
+        dlg = HistoryModal(self)
+        dlg.exec()
+
+    def check_updates_gui(self, silent_if_none=False):
+        try:
+            has_update, remote_v, info = updater.check_for_updates()
+            if has_update:
+                reply = QMessageBox.question(
+                    self, "Mise à jour disponible",
+                    f"Une nouvelle version v{remote_v} est disponible sur GitHub !\n\n"
+                    f"La mise à jour remplacera uniquement les fichiers de code.\n"
+                    f"Vos comptes, cookies et historiques seront STRICTEMENT préservés.\n\n"
+                    f"Voulez-vous installer la mise à jour maintenant ?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if reply == QMessageBox.Yes:
+                    self.log(f"📥 Téléchargement de la mise à jour v{remote_v}…", "info")
+                    success, msg = updater.perform_update(status_callback=lambda m: self.log(m, "info"))
+                    if success:
+                        self.log(f"✅ Version v{remote_v} installée avec succès !", "success")
+                        self.btn_update.setText(f"🔄 v{remote_v}")
+                        QMessageBox.information(
+                            self, "Mise à jour réussie",
+                            f"La version v{remote_v} a été installée avec succès !\n\n"
+                            f"Veuillez relancer l'application pour activer les nouveautés."
+                        )
+                    else:
+                        self.log(f"✕ Échec de la mise à jour : {msg}", "error")
+            else:
+                if not silent_if_none:
+                    err = info.get("error") if isinstance(info, dict) else None
+                    if err:
+                        QMessageBox.warning(self, "Vérification des mises à jour", f"Information : {err}")
+                    else:
+                        local_v = updater.get_local_version()
+                        QMessageBox.information(self, "À jour", f"Vous disposez déjà de la version la plus récente (v{local_v}).")
+        except Exception as e:
+            if not silent_if_none:
+                QMessageBox.warning(self, "Erreur", f"Erreur lors de la vérification : {e}")
+
+    def log(self, message, level="info"):
+        now = datetime.now().strftime("%H:%M:%S")
+        colors = {
+            "info":    C_ACCENT2,
+            "success": C_GREEN,
+            "warning": C_YELLOW,
+            "error":   C_RED,
+            "stealth": C_PURPLE,
+        }
+        col = colors.get(level, C_MUTED)
+        prefix_icons = {
+            "info": "›",
+            "success": "✓",
+            "warning": "⚠",
+            "error": "✕",
+            "stealth": "◈",
+        }
+        icon = prefix_icons.get(level, "›")
+        html = (
+            f"<span style='color:#374151;'>[{now}]</span> "
+            f"<span style='color:{col};'>{icon}</span> "
+            f"<span style='color:{col}; font-weight:500;'>{message}</span>"
+        )
+        self.log_box.append(html)
+        self.lbl_status_bar.setText(message[:90] + ("…" if len(message) > 90 else ""))
+
+    def tick_clock(self):
+        self._tick_count += 1
+
+        if self._tick_count % 2 == 0:
+            self.live_visible = not self.live_visible
+            self.live_dot.setStyleSheet(
+                f"color:{C_GREEN if self.live_visible else C_BORDER2}; font-size:12px;"
+            )
+
+        if not self.is_running:
+            return
+
+        for card in self.account_cards.values():
+            card.tick_second()
+
+        self.update_global_stats()
+
+        ready = [
+            acc_id for acc_id, card in self.account_cards.items()
+            if card.is_connected and card.remaining_seconds == 0 and not card.is_claiming
+        ]
+        if ready and (self.claim_worker is None or not self.claim_worker.isRunning()):
+            for k in ready:
+                card = self.account_cards.get(k)
+                if card:
+                    card.is_claiming = True
+                    card.remaining_seconds = -1
+                    card.set_claiming_state()
+            self.trigger_claim_cycle(ready)
+
+    def toggle_loop(self):
+        self.is_running = not self.is_running
+        if self.is_running:
+            self.btn_toggle.setText("⏸  Pause")
+            self.btn_toggle.setObjectName("btnPrimary")
+            self.log("▶  Boucle automatique reprise.", "info")
+        else:
+            self.btn_toggle.setText("▶  Reprendre")
+            self.btn_toggle.setObjectName("btnSuccess")
+            self.log("⏸  Boucle automatique en pause.", "warning")
+        self.btn_toggle.style().unpolish(self.btn_toggle)
+        self.btn_toggle.style().polish(self.btn_toggle)
+
+    def queue_claim(self, account_ids=None):
+        if account_ids is None:
+            account_ids = [
+                acc["id"] for acc in engine.get_accounts()
+                if engine.is_account_configured(acc["id"])
+            ]
+        for aid in account_ids:
+            if aid not in self._pending_claim_queue:
+                self._pending_claim_queue.append(aid)
+        self._process_claim_queue()
+
+    def _process_claim_queue(self):
+        if self.claim_worker and self.claim_worker.isRunning():
+            return
+        if not self._pending_claim_queue:
+            return
+
+        batch = list(self._pending_claim_queue)
+        self._pending_claim_queue.clear()
+
+        accounts_to_run = [aid for aid in batch if aid in self.account_cards]
+        if not accounts_to_run:
+            return
+
+        self.log(f"🔍  Vérification de {len(accounts_to_run)} compte(s) Google Chrome…", "info")
+        for k in accounts_to_run:
+            card = self.account_cards.get(k)
+            if card:
+                card.is_claiming = True
+                card.set_claiming_state()
+
+        self.claim_worker = BackgroundClaimWorker(accounts_to_run)
+        self.claim_worker.log_signal.connect(self.log)
+        self.claim_worker.account_result_signal.connect(self.handle_account_result)
+        self.claim_worker.cycle_finished_signal.connect(self.handle_cycle_finished)
+        self.claim_worker.start()
+
+    def trigger_claim_cycle(self, account_ids=None):
+        self.queue_claim(account_ids)
+
+    def handle_cycle_finished(self):
+        for card in self.account_cards.values():
+            card.is_claiming = False
+        self.update_global_stats()
+        self.log("✓  Cycle terminé. En attente du prochain timer.", "success")
+        if self._pending_claim_queue:
+            QTimer.singleShot(600, self._process_claim_queue)
+
+    def handle_account_result(self, account_id, res):
+        card = self.account_cards.get(account_id)
+        if not card:
+            return
+
+        card.is_claiming = False
+        status       = res.get("status")
+        details      = res.get("details", "")
+        browser_name = res.get("browser", account_id)
+        sec          = res.get("seconds_left", 600)
+        stock        = res.get("stock")
+        cards        = res.get("cards", [])
+        shot         = res.get("screenshot")
+        opened       = res.get("packs_opened", 0)
+        rarity       = res.get("rarity_summary", "")
+
+        if status == "claimed":
+            card.set_status("🎉  Récupéré !", "#14532d", "#86efac")
+            card.set_countdown(sec)
+            card.update_pack_data(stock=stock, cards=cards, shot_path=shot,
+                                   packs_opened=opened, rarity_summary=rarity)
+            card.sub_lbl.setText("Prochain paquet dans :")
+            self.log(f"[{browser_name}] {details}", "success")
+            self.play_chime()
+
+        elif status == "waiting":
+            card.set_status("✅  Prêt", "#14532d", "#86efac")
+            card.set_countdown(sec)
+            card.update_pack_data(stock=stock)
+            card.sub_lbl.setText("Prochain paquet dans :")
+            self.log(f"[{browser_name}] {details}", "info")
+
+        elif status == "captcha_detected":
+            card.set_captcha_mode(True)
+            card.set_countdown(sec)
+            self.log(
+                f"[{browser_name}] ⚠  Défi anti-bot. Les autres comptes continuent. "
+                f"Cliquez sur 🛠 Résoudre.", "warning"
+            )
+
+        elif status == "login_required":
+            card.is_connected = False
+            card.remaining_seconds = 0
+            card.donut.set_idle()
+            card.sub_lbl.setText("Session expirée")
+            card.set_status("⚠  Déconnecté", "#451a03", "#fde68a")
+            self.log(f"[{browser_name}] Session expirée. Reconnectez-vous.", "warning")
+
+        elif status == "not_configured":
+            card.is_connected = False
+            card.donut.set_idle()
+            card.sub_lbl.setText("Non configuré")
+            card.set_status("●  Non connecté", "#451a03", "#fde68a")
+
+        else:
+            card.set_status("✕  Erreur", "#7f1d1d", "#fca5a5")
+            card.set_countdown(60)
+            card.sub_lbl.setText("Réessai dans 1 min…")
+            self.log(f"[{browser_name}] Erreur : {details}", "error")
+
+    def start_single_claim(self, account_id):
+        card = self.account_cards.get(account_id)
+        title = card.title_text if card else account_id
+        self.log(f"⚡  Tirage manuel : {title}…", "info")
+        self.trigger_claim_cycle([account_id])
+
+    def start_single_refresh(self, account_id):
+        card = self.account_cards.get(account_id)
+        title = card.title_text if card else account_id
+        self.log(f"↻  Actualisation : {title}…", "info")
+        self.trigger_claim_cycle([account_id])
+
+    def start_account_setup(self, account_id, start_url="https://wiki-masters.com/login"):
+        if self.setup_worker and self.setup_worker.isRunning():
+            self.log("Fermeture de la configuration précédente…", "warning")
+            engine.close_active_setup()
+            self.setup_worker.terminate()
+            self.setup_worker.wait(1000)
+            self.setup_worker = None
+
+        card = self.account_cards.get(account_id)
+        if card:
+            card.set_setting_up_mode(True)
+
+        acc = engine.get_account_info(account_id)
+        name = acc.get("name", account_id)
+        action_name = "création / inscription" if "/signup" in start_url else "connexion"
+        self.log(f"🔑  Ouverture de Google Chrome pour {name} ({action_name})…", "info")
+        self.setup_worker = SetupWorker(account_id, start_url=start_url)
+        self.setup_worker.log_signal.connect(self.log)
+        self.setup_worker.finished_signal.connect(self.handle_setup_finished)
+        self.setup_worker.start()
+
+    def finish_account_setup(self, account_id):
+        card = self.account_cards.get(account_id)
+        title = card.title_text if card else account_id
+        self.log(f"✅  Configuration terminée pour {title}.", "info")
+        engine.close_active_setup()
+
+    def handle_setup_finished(self, account_id, success, msg):
+        card = self.account_cards.get(account_id)
+        if card:
+            card.set_setting_up_mode(False)
+            card.set_captcha_mode(False)
+            card.update_configured_state()
+            card.is_connected = True
+            card.set_status("✅  Prêt", "#14532d", "#86efac")
+            card.sub_lbl.setText("Synchronisation en cours…")
+            card.donut.set_claiming()
+        self.setup_worker = None
+
+        acc = engine.get_account_info(account_id)
+        name = acc.get("name", account_id)
+        if success:
+            self.log(f"✅  {name} configuré et prêt !", "success")
+        else:
+            self.log(f"Profil enregistré pour {name}. Vérification du statut…", "info")
+
+        # Déclenche immédiatement la vérification et le premier tirage
+        self.queue_claim([account_id])
+
+# ─── Entry point ─────────────────────────────────────────────────────────────
+
+def main():
+    write_debug("Initialisation de QApplication...")
+    try:
+        app = QApplication.instance() or QApplication(sys.argv)
+        app.setStyle("Fusion")
+        write_debug("Création de MainWindow...")
+        window = MainWindow()
+        write_debug("Affichage de MainWindow (show)...")
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        write_debug("MainWindow affichée avec succès, entrée dans app.exec()...")
+        sys.exit(app.exec())
+    except Exception as e:
+        write_debug(f"ERREUR FATALE : {e}\n{traceback.format_exc()}")
+
+if __name__ == "__main__":
+    main()
