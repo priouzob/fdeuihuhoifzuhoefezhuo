@@ -163,19 +163,87 @@ def save_history(entry):
     except Exception:
         pass
 
+SUPPORTED_BROWSERS = {
+    "chrome": {
+        "name": "Google Chrome",
+        "icon": "🌐",
+        "paths": [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe")
+        ]
+    },
+    "brave": {
+        "name": "Brave Browser",
+        "icon": "🦁",
+        "paths": [
+            r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+            r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe")
+        ]
+    },
+    "edge": {
+        "name": "Microsoft Edge",
+        "icon": "🌊",
+        "paths": [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe")
+        ]
+    },
+    "opera": {
+        "name": "Opera / Opera GX",
+        "icon": "🔴",
+        "paths": [
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Opera\launcher.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Opera\opera.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Opera GX\launcher.exe"),
+            r"C:\Program Files\Opera\launcher.exe"
+        ]
+    }
+}
+
+def find_browser_executable(b_type="chrome"):
+    """Trouve le chemin de l'exécutable pour le type de navigateur donné."""
+    info = SUPPORTED_BROWSERS.get(b_type.lower())
+    if info:
+        for p in info["paths"]:
+            if os.path.exists(p):
+                return p
+    # Fallback vers un autre navigateur installé
+    for other_key, other_info in SUPPORTED_BROWSERS.items():
+        for p in other_info["paths"]:
+            if os.path.exists(p):
+                return p
+    return r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+
+def get_available_browsers():
+    """Renvoie la liste des navigateurs supportés avec leur statut d'installation."""
+    result = {}
+    for b_key, b_info in SUPPORTED_BROWSERS.items():
+        found_path = None
+        for p in b_info["paths"]:
+            if os.path.exists(p):
+                found_path = p
+                break
+        result[b_key] = {
+            "name": b_info["name"],
+            "icon": b_info["icon"],
+            "path": found_path,
+            "installed": (found_path is not None)
+        }
+    return result
+
 def get_chrome_executable():
-    config = load_config()
-    exe = config.get("chrome_executable", r"C:\Program Files\Google\Chrome\Application\chrome.exe")
-    if os.path.exists(exe):
-        return exe
-    for p in [
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe")
-    ]:
-        if os.path.exists(p):
-            return p
-    return exe
+    return find_browser_executable("chrome")
+
+def get_browser_executable_for_account(account_id):
+    acc = get_account_info(account_id)
+    custom_exe = acc.get("browser_executable")
+    if custom_exe and os.path.exists(custom_exe):
+        return custom_exe
+    b_type = acc.get("browser_type", "chrome")
+    return find_browser_executable(b_type)
 
 def get_accounts():
     config = load_config()
@@ -187,6 +255,7 @@ def get_accounts():
         accounts.append({
             "id": k,
             "name": v.get("name", k),
+            "browser_type": v.get("browser_type", "chrome"),
             "profile_dir": v.get("profile_dir", f"profiles/{k}"),
             "enabled": v.get("enabled", True)
         })
@@ -199,11 +268,12 @@ def get_account_info(account_id):
     return {
         "id": account_id,
         "name": account_id.replace("_", " ").title(),
+        "browser_type": "chrome",
         "profile_dir": f"profiles/{account_id}",
         "enabled": True
     }
 
-def add_new_account(name=None):
+def add_new_account(name=None, browser_type="chrome"):
     config = load_config()
     accounts = config.get("accounts", [])
     existing_nums = []
@@ -214,9 +284,14 @@ def add_new_account(name=None):
     next_num = max(existing_nums, default=len(accounts)) + 1
     new_id = f"compte_{next_num}"
     new_name = name or f"Compte {next_num}"
+    b_type = browser_type.lower() if browser_type else "chrome"
+    exe_path = find_browser_executable(b_type)
+
     new_acc = {
         "id": new_id,
         "name": new_name,
+        "browser_type": b_type,
+        "browser_executable": exe_path,
         "profile_dir": f"profiles/{new_id}",
         "enabled": True
     }
@@ -228,12 +303,24 @@ def add_new_account(name=None):
     (BASE_DIR / "profiles" / new_id).mkdir(parents=True, exist_ok=True)
     return new_acc
 
-def delete_account(account_id):
+def delete_account(account_id, remove_files=True):
+    close_active_setup()
+    kill_browser_processes(account_id)
     config = load_config()
     accounts = config.get("accounts", [])
     config["accounts"] = [acc for acc in accounts if acc.get("id") != account_id]
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
+
+    if remove_files:
+        p_dir = BASE_DIR / "profiles" / account_id
+        if p_dir.exists():
+            try:
+                import shutil
+                shutil.rmtree(p_dir, ignore_errors=True)
+            except Exception:
+                pass
+    return True
 
 def rename_account(account_id, new_name):
     """Modifie le nom d'un compte dans config.json et met à jour l'historique."""
@@ -315,7 +402,7 @@ def should_run_headless(account_id=None):
 
 def verify_session(account_id):
     acc = get_account_info(account_id)
-    exe_path = get_chrome_executable()
+    exe_path = get_browser_executable_for_account(account_id)
     p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
 
     if not is_account_configured(account_id):
@@ -368,18 +455,21 @@ def setup_account(account_id, start_url="https://wiki-masters.com/signup", statu
 
     acc = get_account_info(account_id)
     name = acc.get("name", account_id)
-    exe_path = get_chrome_executable()
+    exe_path = get_browser_executable_for_account(account_id)
     p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
     p_dir.mkdir(parents=True, exist_ok=True)
 
+    b_type = acc.get("browser_type", "chrome")
+    b_name = SUPPORTED_BROWSERS.get(b_type, {}).get("name", "Navigateur")
+
     if not os.path.exists(exe_path):
-        safe_notify(status_callback, f"Exécutable Chrome {exe_path} introuvable.", "error")
+        safe_notify(status_callback, f"Exécutable {b_name} ({exe_path}) introuvable.", "error")
         return False, f"Exécutable introuvable : {exe_path}"
 
     kill_browser_processes(account_id)
 
-    safe_notify(status_callback, f"Ouverture de Google Chrome pour {name}...", "info")
-    safe_notify(status_callback, "Créez votre compte ou connectez-vous sur WikiMasters, puis fermez Chrome ou cliquez sur 'J'ai fini'.", "warning")
+    safe_notify(status_callback, f"Ouverture de {b_name} pour {name}...", "info")
+    safe_notify(status_callback, f"Créez votre compte ou connectez-vous sur WikiMasters, puis fermez {b_name} ou cliquez sur 'J'ai fini'.", "warning")
 
     try:
         local_proc = subprocess.Popen([
@@ -524,7 +614,7 @@ def claim_account(account_id, headless=True, status_callback=None):
     config = load_config()
     acc = get_account_info(account_id)
     name = acc.get("name", account_id)
-    exe_path = get_chrome_executable()
+    exe_path = get_browser_executable_for_account(account_id)
     p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
     target_url = config.get("target_url", "https://wiki-masters.com/pulls")
 
