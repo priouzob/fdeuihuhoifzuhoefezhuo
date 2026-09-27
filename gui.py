@@ -1507,7 +1507,18 @@ def main():
         write_debug("MainWindow affichée avec succès, entrée dans app.exec()...")
         sys.exit(app.exec())
     except Exception as e:
-        write_debug(f"ERREUR FATALE : {e}\n{traceback.format_exc()}")
+        err_msg = f"ERREUR FATALE : {e}\n{traceback.format_exc()}"
+        write_debug(err_msg)
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                f"WikiMasters Auto-Claimer n'a pas pu démarrer :\n\n{e}\n\nConsultez le fichier 'gui_debug.log' pour voir les détails.",
+                "Erreur de démarrage — WikiMasters",
+                0x10
+            )
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     main()
