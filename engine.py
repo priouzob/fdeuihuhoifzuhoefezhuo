@@ -25,6 +25,7 @@ SCREENSHOTS_DIR = BASE_DIR / "screenshots"
 SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 HISTORY_FILE = BASE_DIR / "history.json"
 STATS_FILE = BASE_DIR / "stats.json"
+BEST_CARDS_FILE = BASE_DIR / "best_cards.json"
 
 _active_setup_proc = None
 
@@ -74,14 +75,23 @@ def update_lifetime_stats(browser_key, count=1):
     except Exception:
         pass
 
-# Dictionnaire des raretés officielles WikiMasters
+# Dictionnaire et hiérarchie des raretés officielles WikiMasters
+RARITY_RANKS = {
+    "L": 6,
+    "UR": 5,
+    "SR": 4,
+    "R": 3,
+    "PC": 2,
+    "C": 1
+}
+
 RARITY_MAP = {
-    "C": {"singular": "commune", "plural": "communes"},
-    "PC": {"singular": "peu commune", "plural": "peu communes"},
-    "R": {"singular": "rare", "plural": "rares"},
-    "SR": {"singular": "super rare", "plural": "super rares"},
-    "UR": {"singular": "ultra rare", "plural": "ultra rares"},
-    "L": {"singular": "légendaire", "plural": "légendaires"},
+    "C": {"singular": "commune", "plural": "communes", "name": "Commune", "color": "#94a3b8", "bg": "#1e293b", "badge": "⚪ C"},
+    "PC": {"singular": "peu commune", "plural": "peu communes", "name": "Peu Commune", "color": "#38bdf8", "bg": "#0c4a6e", "badge": "🔷 PC"},
+    "R": {"singular": "rare", "plural": "rares", "name": "Rare", "color": "#34d399", "bg": "#064e3b", "badge": "✨ R"},
+    "SR": {"singular": "super rare", "plural": "super rares", "name": "Super Rare", "color": "#a855f7", "bg": "#4c1d95", "badge": "⭐ SR"},
+    "UR": {"singular": "ultra rare", "plural": "ultra rares", "name": "Ultra Rare", "color": "#ec4899", "bg": "#701a75", "badge": "💎 UR"},
+    "L": {"singular": "légendaire", "plural": "légendaires", "name": "Légendaire", "color": "#fbbf24", "bg": "#78350f", "badge": "👑 L"},
 }
 
 def safe_notify(callback, message, level="info"):
@@ -160,8 +170,132 @@ def save_history(entry):
         packs = entry.get("packs_count", 1)
         if b_key:
             update_lifetime_stats(b_key, packs)
+            if entry.get("cards") and entry.get("rarities"):
+                register_pulled_cards(
+                    b_key,
+                    entry["cards"],
+                    entry["rarities"],
+                    timestamp=entry.get("timestamp"),
+                    screenshot=entry.get("screenshot")
+                )
     except Exception:
         pass
+
+def load_best_cards():
+    """
+    Charge les 10 meilleures cartes enregistrées par compte.
+    Initialise automatiquement depuis l'historique complet si le fichier n'existe pas.
+    """
+    if BEST_CARDS_FILE.exists():
+        try:
+            with open(BEST_CARDS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+
+    # Initialisation intelligente depuis history.json
+    best_cards = {}
+    try:
+        history = load_history()
+        # Parcourt du plus ancien au plus récent
+        for entry in reversed(history):
+            b_key = entry.get("browser_key")
+            if not b_key:
+                continue
+            cards = entry.get("cards", [])
+            rarities = entry.get("rarities", [])
+            ts = entry.get("timestamp", "")
+            shot = entry.get("screenshot", "")
+            if b_key not in best_cards:
+                best_cards[b_key] = []
+
+            for c_title, r_code in zip(cards, rarities):
+                if not c_title:
+                    continue
+                r_upper = str(r_code).upper().strip()
+                if r_upper not in RARITY_RANKS:
+                    r_upper = "C"
+                best_cards[b_key].append({
+                    "title": c_title,
+                    "rarity": r_upper,
+                    "timestamp": ts,
+                    "screenshot": shot
+                })
+
+        # Tri et conservation stricte des 10 meilleures cartes
+        for b_key in list(best_cards.keys()):
+            best_cards[b_key].sort(
+                key=lambda x: (RARITY_RANKS.get(x.get("rarity", "C"), 0), x.get("timestamp", "")),
+                reverse=True
+            )
+            # Suppression automatique au-delà de 10
+            best_cards[b_key] = best_cards[b_key][:10]
+
+        save_best_cards(best_cards)
+    except Exception:
+        pass
+
+    return best_cards
+
+def save_best_cards(data):
+    try:
+        with open(BEST_CARDS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+def get_account_best_cards(account_id):
+    """Renvoie les 10 meilleures cartes pour le compte donné."""
+    best_cards = load_best_cards()
+    return best_cards.get(account_id, [])
+
+def register_pulled_cards(account_id, cards_list, rarities_list, timestamp=None, screenshot=None):
+    """
+    Enregistre les nouvelles cartes tirées pour un compte.
+    Ne conserve strictement que les 10 cartes les plus rares (L, UR, SR, R, PC, C).
+    Dès qu'une nouvelle carte plus rare est tirée et qu'il y en a déjà 10,
+    les cartes les moins rares sont automatiquement supprimées du classement.
+    """
+    best_cards = load_best_cards()
+    if account_id not in best_cards:
+        best_cards[account_id] = []
+
+    ts = timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    for title, rarity in zip(cards_list, rarities_list):
+        if not title:
+            continue
+        r_code = str(rarity).upper().strip() if rarity else "C"
+        if r_code not in RARITY_RANKS:
+            r_code = "C"
+
+        best_cards[account_id].append({
+            "title": title,
+            "rarity": r_code,
+            "timestamp": ts,
+            "screenshot": screenshot or ""
+        })
+
+    # Tri par rareté décroissante (L > UR > SR > R > PC > C), puis date décroissante
+    best_cards[account_id].sort(
+        key=lambda x: (RARITY_RANKS.get(x.get("rarity", "C"), 0), x.get("timestamp", "")),
+        reverse=True
+    )
+
+    # Garde strictement le TOP 10 (suppression automatique au-delà de 10)
+    best_cards[account_id] = best_cards[account_id][:10]
+    save_best_cards(best_cards)
+    return best_cards[account_id]
+
+def delete_account_card(account_id, card_index):
+    """Supprime manuellement une carte du Top 10."""
+    best_cards = load_best_cards()
+    cards = best_cards.get(account_id, [])
+    if 0 <= card_index < len(cards):
+        deleted = cards.pop(card_index)
+        save_best_cards(best_cards)
+        return True, deleted
+    return False, None
 
 SUPPORTED_BROWSERS = {
     "chrome": {
@@ -320,6 +454,13 @@ def delete_account(account_id, remove_files=True):
                 shutil.rmtree(p_dir, ignore_errors=True)
             except Exception:
                 pass
+        try:
+            bc = load_best_cards()
+            if account_id in bc:
+                del bc[account_id]
+                save_best_cards(bc)
+        except Exception:
+            pass
     return True
 
 def rename_account(account_id, new_name):
@@ -875,6 +1016,7 @@ def claim_account(account_id, headless=True, status_callback=None):
                     "packs_opened": total_packs_opened,
                     "cards": all_pulled_cards,
                     "rarities": all_rarities,
+                    "top_cards": get_account_best_cards(account_id),
                     "rarity_summary": global_rarity_summary,
                     "seconds_left": timer_sec,
                     "timer_str": timer_str,
