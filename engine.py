@@ -30,19 +30,44 @@ COLLECTION_STATS_FILE = BASE_DIR / "collection_stats.json"
 
 _active_setup_proc = None
 
-def kill_browser_processes(browser_key):
-    """Ferme proprement tout processus résiduel du navigateur pour ce profil avant réouverture."""
+def clean_profile_locks(browser_key):
+    """Nettoie les fichiers de verrouillage résiduels (SingletonLock, lockfile) du profil Chrome."""
     try:
-        ps_cmd = f"Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -match 'profiles/{browser_key}' -or $_.CommandLine -match 'profiles\\\\{browser_key}' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"
-        subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
-            timeout=5,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-            capture_output=True
-        )
+        acc = get_account_info(browser_key)
+        p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{browser_key}")
+        if not p_dir.exists():
+            return
+        lock_names = ["lockfile", "SingletonLock", "SingletonSocket", "SingletonCookie"]
+        for name in lock_names:
+            f = p_dir / name
+            if f.exists():
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
     except Exception:
         pass
-    time.sleep(0.4)
+
+def kill_browser_processes(browser_key):
+    """Ferme proprement et instantanément tout processus résiduel du navigateur pour ce profil avant réouverture."""
+    try:
+        import psutil
+        target_key = str(browser_key).lower()
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                cmdline = " ".join(proc.info.get('cmdline') or []).lower()
+                if f"profiles/{target_key}" in cmdline or f"profiles\\{target_key}" in cmdline:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=0.6)
+                    except (psutil.TimeoutExpired, psutil.NoSuchProcess):
+                        proc.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+    except Exception:
+        pass
+    clean_profile_locks(browser_key)
+    time.sleep(0.05)
 
 def load_collection_stats():
     """Charge le cache des statistiques de collection de chaque compte."""
@@ -620,11 +645,11 @@ def claim_account_achievements(page, account_name, status_callback=None):
         
         # 2. Visite /achievements
         try:
-            page.goto("https://wiki-masters.com/achievements", wait_until="domcontentloaded", timeout=15000)
+            page.goto("https://wiki-masters.com/achievements", wait_until="domcontentloaded", timeout=8000)
         except Exception:
             return 0
 
-        time.sleep(1.2)
+        time.sleep(0.6)
         claimed_count = 0
 
         while True:
@@ -639,11 +664,11 @@ def claim_account_achievements(page, account_name, status_callback=None):
             except Exception:
                 pass
 
-            human_delay(0.6, 1.3)
+            human_delay(0.3, 0.6)
             human_click(page, btn)
             claimed_count += 1
             safe_notify(status_callback, f"[{account_name}] 🏆 Succès réclamé : {title} !", "success")
-            time.sleep(0.8)
+            time.sleep(0.4)
 
         if claimed_count > 0:
             safe_notify(status_callback, f"[{account_name}] 🎉 {claimed_count} succès réclamé(s) au total !", "success")
@@ -1117,20 +1142,18 @@ def claim_account(account_id, headless=True, status_callback=None):
             apply_stealth(context)
             page = context.pages[0] if context.pages else context.new_page()
             try:
-                page.goto(target_url, wait_until="networkidle", timeout=25000)
+                page.goto(target_url, wait_until="domcontentloaded", timeout=12000)
             except Exception:
-                page.goto(target_url, wait_until="domcontentloaded", timeout=25000)
+                pass
 
             # S'assurer que Next.js a fini d'hydrater les paquets et compteurs
-            for _ in range(12):
-                ouvrir_btn_init = page.locator("button:has-text('Ouvrir'):not([disabled])").first
-                if ouvrir_btn_init.count() > 0 and ouvrir_btn_init.is_visible() and ouvrir_btn_init.is_enabled():
-                    break
-                b_text = page.inner_text("body")
-                if "Prochain dans" in b_text:
-                    time.sleep(0.5)
-                    break
-                time.sleep(0.5)
+            try:
+                page.wait_for_selector(
+                    "button:has-text('Ouvrir'), *:has-text('Prochain dans'), input[type='email'], div.cf-turnstile, iframe[src*='turnstile']",
+                    timeout=5000
+                )
+            except Exception:
+                pass
 
             # Résoudre immédiatement la modale interne 'Vérification rapide' si affichée
             check_and_handle_verification_modal(page, status_callback)
@@ -1142,13 +1165,13 @@ def claim_account(account_id, headless=True, status_callback=None):
                 solved = check_and_handle_turnstile(page)
                 if solved:
                     safe_notify(status_callback, f"[{name}] 🛡️ Vérification validée discrètement avec succès.", "success")
-                    time.sleep(2.0)
+                    time.sleep(1.5)
                 else:
-                    time.sleep(2.5)
-                    # Si après tentative le défi persiste et bloque l'accès aux boutons
+                    time.sleep(2.0)
                     has_content = page.locator("button:has-text('Ouvrir'), div:has-text('paquets disponibles')").count() > 0
                     if not has_content:
                         context.close()
+                        kill_browser_processes(account_id)
                         return {
                             "status": "captcha_detected",
                             "browser": name,
@@ -1159,14 +1182,17 @@ def claim_account(account_id, headless=True, status_callback=None):
                         }
 
             # Vérifier si on est redirigé vers /login
-            if "/login" in page.url:
-                context.close()
-                return {
-                    "status": "login_required",
-                    "browser": name,
-                    "browser_key": account_id,
-                    "details": "Session expirée. Veuillez vous reconnecter."
-                }
+            if "/login" in page.url or "/signup" in page.url:
+                time.sleep(0.8)
+                if "/login" in page.url or "/signup" in page.url:
+                    context.close()
+                    kill_browser_processes(account_id)
+                    return {
+                        "status": "login_required",
+                        "browser": name,
+                        "browser_key": account_id,
+                        "details": "Session expirée. Veuillez vous reconnecter."
+                    }
 
             total_packs_opened = 0
             all_pulled_cards = []
@@ -1182,9 +1208,8 @@ def claim_account(account_id, headless=True, status_callback=None):
 
                 is_btn_ready = (ouvrir_btn.count() > 0 and ouvrir_btn.is_visible() and ouvrir_btn.is_enabled())
 
-                # Si le stock affiche >= 1 mais que le bouton met un instant à devenir cliquable
                 if stock > 0 and not is_btn_ready:
-                    time.sleep(1.5)
+                    time.sleep(0.8)
                     ouvrir_btn = page.locator("button:has-text('Ouvrir'):not([disabled])").first
                     is_btn_ready = (ouvrir_btn.count() > 0 and ouvrir_btn.is_visible() and ouvrir_btn.is_enabled())
 
@@ -1197,13 +1222,13 @@ def claim_account(account_id, headless=True, status_callback=None):
                 current_pack_num = total_packs_opened + 1
                 safe_notify(status_callback, f"[{name}] 📦 Ouverture du paquet #{current_pack_num} (Stock disponible: {stock})...", "stealth")
 
-                human_delay(0.6, 1.3)
+                human_delay(0.4, 0.8)
                 human_click(page, ouvrir_btn)
-                time.sleep(1.2)
+                time.sleep(0.8)
 
                 # Si la modale 'Vérification rapide' s'est déclenchée au clic
                 if check_and_handle_verification_modal(page, status_callback):
-                    time.sleep(1.5)
+                    time.sleep(1.0)
                     ouvrir_retry = page.locator("button:has-text('Ouvrir'):not([disabled])").first
                     if ouvrir_retry.count() > 0 and ouvrir_retry.is_visible() and ouvrir_retry.is_enabled():
                         human_click(page, ouvrir_retry)
@@ -1211,7 +1236,7 @@ def claim_account(account_id, headless=True, status_callback=None):
                 total_packs_opened += 1
 
                 # Attente fluide de l'apparition de la première carte
-                human_delay(2.2, 3.0)
+                human_delay(1.2, 1.8)
 
                 pack_cards = []
                 pack_rarities = []
@@ -1219,13 +1244,11 @@ def claim_account(account_id, headless=True, status_callback=None):
 
                 # Révélation précise des 5 cartes du paquet
                 for card_idx in range(5):
-                    # Laisser le temps à l'animation 3D de rotation de se stabiliser
-                    human_delay(1.2, 1.8)
+                    human_delay(0.5, 0.9)
 
                     card_title, card_rarity = extract_current_card_details(page)
-                    # Si le titre n'est pas encore apparu dans le DOM, court délai et seconde lecture
                     if not card_title:
-                        time.sleep(0.6)
+                        time.sleep(0.3)
                         card_title, card_rarity = extract_current_card_details(page)
 
                     if not card_title:
@@ -1234,13 +1257,14 @@ def claim_account(account_id, headless=True, status_callback=None):
                     pack_cards.append(card_title)
                     pack_rarities.append(card_rarity)
 
-                    # Capture d'écran individuelle dédiée pour cette carte exacte
+                    # Capture d'écran individuelle
                     ts_now = datetime.now().strftime("%Y%m%d_%H%M%S")
                     card_shot_path = str(SCREENSHOTS_DIR / f"{account_id}_{ts_now}_p{current_pack_num}_c{card_idx+1}.png")
                     latest_screenshot = str(SCREENSHOTS_DIR / f"{account_id}_latest.png")
                     try:
                         page.screenshot(path=card_shot_path)
-                        page.screenshot(path=latest_screenshot)
+                        import shutil
+                        shutil.copyfile(card_shot_path, latest_screenshot)
                     except Exception:
                         card_shot_path = ""
 
@@ -1255,19 +1279,19 @@ def claim_account(account_id, headless=True, status_callback=None):
                     if card_idx < 4:
                         arrow_next = page.locator("button:has(polyline[points='9 18 15 12 9 6']):not([disabled])").first
                         if arrow_next.count() > 0 and arrow_next.is_visible() and arrow_next.is_enabled():
-                            human_delay(0.4, 0.8)
+                            human_delay(0.2, 0.4)
                             human_click(page, arrow_next)
                         else:
-                            human_delay(0.3, 0.6)
+                            human_delay(0.2, 0.4)
 
                 # Validation finale du paquet par 'Continuer'
                 continuer_btn = page.locator("button:has-text('Continuer'):not([disabled])").first
                 if continuer_btn.count() > 0 and continuer_btn.is_visible() and continuer_btn.is_enabled():
-                    human_delay(0.7, 1.2)
+                    human_delay(0.4, 0.8)
                     human_click(page, continuer_btn)
-                    human_delay(2.0, 3.0)
+                    human_delay(1.0, 1.6)
                 else:
-                    human_delay(1.5, 2.5)
+                    human_delay(0.8, 1.4)
 
                 check_and_handle_verification_modal(page, status_callback)
 
@@ -1277,20 +1301,17 @@ def claim_account(account_id, headless=True, status_callback=None):
                 last_pack_rarity_summary = format_rarity_summary(pack_rarities)
 
                 safe_notify(status_callback, f"[{name}] ✅ Paquet #{current_pack_num} validé ! ({last_pack_rarity_summary})", "success")
-                human_delay(1.2, 2.2)
+                human_delay(0.6, 1.2)
 
-            time.sleep(1.2)
+            time.sleep(0.8)
             final_stock = extract_stock_count(page)
             timer_sec = extract_timer_seconds(page)
             if timer_sec is None:
-                time.sleep(1.5)
+                time.sleep(1.0)
                 timer_sec = extract_timer_seconds(page)
             if timer_sec is None:
-                # Si le timer n'a pas pu être lu, revérifier rapidement dans 60s
-                # au lieu de bloquer l'application pendant 10 minutes (600s) !
                 timer_sec = 60
 
-            # Si des paquets sont encore disponibles (stock > 0), revérifier dans 5s
             if final_stock > 0:
                 timer_sec = 5
 
@@ -1316,15 +1337,15 @@ def claim_account(account_id, headless=True, status_callback=None):
             # 1. Extraction des statistiques réelles de collection (total et raretés)
             col_stats = extract_collection_stats(page, account_id)
 
-            # 2. Auto-claim des succès si l'option est cochée
-            if acc.get("auto_achievements", True):
+            # 2. Auto-claim des succès uniquement si des paquets ont été ouverts
+            if acc.get("auto_achievements", True) and total_packs_opened > 0:
                 try:
                     claim_account_achievements(page, name, status_callback)
                 except Exception:
                     pass
 
-            # 3. Interconnexion automatique des amis si l'option est cochée
-            if acc.get("auto_friends", True):
+            # 3. Interconnexion automatique des amis uniquement si des paquets ont été ouverts
+            if acc.get("auto_friends", True) and total_packs_opened > 0:
                 try:
                     sync_account_friends(page, acc, config.get("accounts", []), status_callback)
                 except Exception:
@@ -1332,6 +1353,7 @@ def claim_account(account_id, headless=True, status_callback=None):
 
             context.close()
             context = None
+            kill_browser_processes(account_id)
 
             if total_packs_opened > 0:
                 return {
@@ -1368,6 +1390,7 @@ def claim_account(account_id, headless=True, status_callback=None):
                     context.close()
                 except Exception:
                     pass
+            kill_browser_processes(account_id)
             return {
                 "status": "error",
                 "browser": name,
@@ -1375,3 +1398,4 @@ def claim_account(account_id, headless=True, status_callback=None):
                 "seconds_left": 60,
                 "details": str(e)
             }
+

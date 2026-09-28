@@ -1050,6 +1050,7 @@ class SetupWorker(QThread):
 
 class BackgroundClaimWorker(QThread):
     log_signal = Signal(str, str)
+    account_started_signal = Signal(str)
     account_result_signal = Signal(str, dict)
     cycle_finished_signal = Signal()
 
@@ -1059,13 +1060,14 @@ class BackgroundClaimWorker(QThread):
 
     def run(self):
         for acc_id in self.account_ids:
+            self.account_started_signal.emit(acc_id)
             res = engine.claim_account(
                 acc_id,
                 headless=True,
                 status_callback=lambda text, level: self.log_signal.emit(text, level)
             )
             self.account_result_signal.emit(acc_id, res)
-            time.sleep(1.0)
+            time.sleep(0.4)
         self.cycle_finished_signal.emit()
 
 class TransferWorker(QThread):
@@ -2314,16 +2316,14 @@ class MainWindow(QMainWindow):
 
         ready = [
             acc_id for acc_id, card in self.account_cards.items()
-            if card.is_connected and card.remaining_seconds == 0 and not card.is_claiming
+            if card.is_connected and card.remaining_seconds == 0 and not card.is_claiming and acc_id not in self._pending_claim_queue
         ]
-        if ready and (self.claim_worker is None or not self.claim_worker.isRunning()):
+        if ready:
             for k in ready:
                 card = self.account_cards.get(k)
-                if card:
-                    card.is_claiming = True
-                    card.remaining_seconds = -1
-                    card.set_claiming_state()
-            self.trigger_claim_cycle(ready)
+                if card and (self.claim_worker and self.claim_worker.isRunning()):
+                    card.sub_lbl.setText("En file d'attente…")
+            self.queue_claim(ready)
 
     def toggle_loop(self):
         self.is_running = not self.is_running
@@ -2362,29 +2362,31 @@ class MainWindow(QMainWindow):
         if not accounts_to_run:
             return
 
-        self.log(f"🔍  Vérification de {len(accounts_to_run)} compte(s) Google Chrome…", "info")
-        for k in accounts_to_run:
-            card = self.account_cards.get(k)
-            if card:
-                card.is_claiming = True
-                card.set_claiming_state()
-
         self.claim_worker = BackgroundClaimWorker(accounts_to_run)
         self.claim_worker.log_signal.connect(self.log)
+        self.claim_worker.account_started_signal.connect(self.handle_account_started)
         self.claim_worker.account_result_signal.connect(self.handle_account_result)
         self.claim_worker.cycle_finished_signal.connect(self.handle_cycle_finished)
         self.claim_worker.start()
+
+    def handle_account_started(self, account_id):
+        card = self.account_cards.get(account_id)
+        if card:
+            card.is_claiming = True
+            card.set_claiming_state()
 
     def trigger_claim_cycle(self, account_ids=None):
         self.queue_claim(account_ids)
 
     def handle_cycle_finished(self):
         for card in self.account_cards.values():
-            card.is_claiming = False
+            if not card.is_connected or card.remaining_seconds > 0:
+                card.is_claiming = False
         self.update_global_stats()
-        self.log("✓  Cycle terminé. En attente du prochain timer.", "success")
         if self._pending_claim_queue:
-            QTimer.singleShot(600, self._process_claim_queue)
+            QTimer.singleShot(400, self._process_claim_queue)
+        else:
+            self.log("✓  Cycle terminé. En attente du prochain timer.", "success")
 
     def handle_account_result(self, account_id, res):
         card = self.account_cards.get(account_id)
