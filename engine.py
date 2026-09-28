@@ -26,13 +26,14 @@ SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 HISTORY_FILE = BASE_DIR / "history.json"
 STATS_FILE = BASE_DIR / "stats.json"
 BEST_CARDS_FILE = BASE_DIR / "best_cards.json"
+COLLECTION_STATS_FILE = BASE_DIR / "collection_stats.json"
 
 _active_setup_proc = None
 
 def kill_browser_processes(browser_key):
     """Ferme proprement tout processus résiduel du navigateur pour ce profil avant réouverture."""
     try:
-        ps_cmd = f"Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -match 'wikimasters-autoclaim\\\\profiles\\\\{browser_key}' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"
+        ps_cmd = f"Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -match 'profiles/{browser_key}' -or $_.CommandLine -match 'profiles\\\\{browser_key}' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"
         subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
             timeout=5,
@@ -42,6 +43,52 @@ def kill_browser_processes(browser_key):
     except Exception:
         pass
     time.sleep(0.4)
+
+def load_collection_stats():
+    """Charge le cache des statistiques de collection de chaque compte."""
+    if COLLECTION_STATS_FILE.exists():
+        try:
+            with open(COLLECTION_STATS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_collection_stats(stats_dict):
+    """Sauvegarde le cache des statistiques de collection."""
+    try:
+        with open(COLLECTION_STATS_FILE, "w", encoding="utf-8") as f:
+            json.dump(stats_dict, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+def get_account_collection_stats(account_id):
+    """Récupère les statistiques de cartes pour un compte spécifique."""
+    stats = load_collection_stats()
+    return stats.get(account_id, None)
+
+def extract_collection_stats(page, account_id):
+    """Extrait en temps réel via l'API interne le total et la répartition des raretés de cartes."""
+    try:
+        data = page.evaluate("""async () => {
+            try {
+                const res = await fetch('/api/my-collection/stats?sort=rarity');
+                if (res.ok) return await res.json();
+            } catch(e) {}
+            return null;
+        }""")
+        if data and "total" in data:
+            all_stats = load_collection_stats()
+            all_stats[account_id] = {
+                "total": data.get("total", 0),
+                "rarityCounts": data.get("rarityCounts", {}),
+                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            save_collection_stats(all_stats)
+            return all_stats[account_id]
+    except Exception:
+        pass
+    return None
 
 def load_lifetime_stats():
     if STATS_FILE.exists():
@@ -530,6 +577,216 @@ def rename_account(account_id, new_name):
     except Exception:
         pass
     return False
+
+def save_config(config):
+    """Sauvegarde la configuration globale."""
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception:
+        return False
+
+def set_account_option(account_id, option_key, value):
+    """Met à jour une option modulaire pour un compte (ex: auto_achievements, auto_friends)."""
+    try:
+        config = load_config()
+        for acc in config.get("accounts", []):
+            if acc.get("id") == account_id:
+                acc[option_key] = value
+                save_config(config)
+                return True
+    except Exception:
+        pass
+    return False
+
+def claim_account_achievements(page, account_name, status_callback=None):
+    """
+    Réclame automatiquement tous les succès débloqués sur /achievements.
+    Simule des délais humains et des clics naturels.
+    """
+    try:
+        safe_notify(status_callback, f"[{account_name}] 🏆 Vérification des succès...", "info")
+        # 1. Déclencher la synchronisation des succès
+        page.evaluate("""async () => {
+            try {
+                await fetch('/api/achievements/check', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({event: 'achievements_sync'})
+                });
+            } catch(e) {}
+        }""")
+        
+        # 2. Visite /achievements
+        try:
+            page.goto("https://wiki-masters.com/achievements", wait_until="domcontentloaded", timeout=15000)
+        except Exception:
+            return 0
+
+        time.sleep(1.2)
+        claimed_count = 0
+
+        while True:
+            btn = page.locator("button:has-text('Réclamer')").first
+            if btn.count() == 0 or not btn.is_visible():
+                break
+
+            card_container = btn.locator("xpath=ancestor::div[contains(@class, 'rounded') or contains(@class, 'border')][1]")
+            title = "Succès"
+            try:
+                title = card_container.inner_text().split("\n")[0].strip()
+            except Exception:
+                pass
+
+            human_delay(0.6, 1.3)
+            human_click(page, btn)
+            claimed_count += 1
+            safe_notify(status_callback, f"[{account_name}] 🏆 Succès réclamé : {title} !", "success")
+            time.sleep(0.8)
+
+        if claimed_count > 0:
+            safe_notify(status_callback, f"[{account_name}] 🎉 {claimed_count} succès réclamé(s) au total !", "success")
+        return claimed_count
+    except Exception as e:
+        safe_notify(status_callback, f"[{account_name}] Erreur vérification succès : {e}", "warning")
+        return 0
+
+def sync_account_friends(page, current_account, all_accounts, status_callback=None):
+    """
+    Interconnecte automatiquement tous les comptes de config.json en tant qu'amis :
+    1. Accepte toutes les demandes d'amis en attente.
+    2. Envoie des demandes d'amis aux autres comptes enregistrés qui ne sont pas encore amis.
+    """
+    try:
+        curr_name = current_account.get("name", current_account.get("id"))
+        # 1. Accepter toutes les demandes d'amis entrantes
+        page.evaluate("""async () => {
+            try {
+                await fetch('/api/friends/accept-all', { method: 'POST' });
+            } catch(e) {}
+        }""")
+
+        # 2. Récupérer les amitiés existantes
+        friends_data = page.evaluate("""async () => {
+            try {
+                const res = await fetch('/api/friends');
+                if (res.ok) return await res.json();
+            } catch(e) {}
+            return null;
+        }""")
+
+        friendships = (friends_data or {}).get("friendships", [])
+        known_friends = set()
+        for f in friendships:
+            addr = (f.get("addressee") or {}).get("username", "").lower()
+            req = (f.get("requester") or {}).get("username", "").lower()
+            if addr:
+                known_friends.add(addr)
+            if req:
+                known_friends.add(req)
+
+        # 3. Pour chaque autre compte activé
+        for other in all_accounts:
+            other_name = other.get("name", "").strip()
+            if not other_name or other_name.lower() == curr_name.lower():
+                continue
+            if other_name.lower() not in known_friends:
+                # Chercher et envoyer la demande
+                search_res = page.evaluate("""async (q) => {
+                    try {
+                        const r = await fetch(`/api/friends/search?q=${encodeURIComponent(q)}`);
+                        return await r.json();
+                    } catch(e) { return null; }
+                }""", other_name)
+                
+                users = (search_res or {}).get("users", [])
+                target_user = next((u for u in users if u.get("username", "").lower() == other_name.lower()), None)
+                if target_user and not target_user.get("friendship"):
+                    page.evaluate("""async (id) => {
+                        try {
+                            await fetch('/api/friends', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({addressee_id: id})
+                            });
+                        } catch(e) {}
+                    }""", target_user.get("id"))
+                    safe_notify(status_callback, f"[{curr_name}] 🤝 Demande d'ami envoyée à {other_name}", "info")
+                    human_delay(0.5, 1.2)
+    except Exception:
+        pass
+
+def run_claim_achievements_standalone(account_id, status_callback=None):
+    """Exécute manuellement la réclamation des succès pour un compte."""
+    acc = get_account_info(account_id)
+    name = acc.get("name", account_id)
+    p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
+    exe_path = get_browser_executable_for_account(account_id)
+
+    safe_notify(status_callback, f"[{name}] 🏆 Connexion pour réclamer les succès...", "info")
+    kill_browser_processes(account_id)
+
+    with sync_playwright() as p:
+        context = p.chromium.launch_persistent_context(
+            user_data_dir=str(p_dir),
+            executable_path=exe_path,
+            headless=True,
+            viewport={"width": 1366, "height": 768},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+            args=get_browser_launch_args(account_id)
+        )
+        apply_stealth(context)
+        page = context.pages[0] if context.pages else context.new_page()
+        try:
+            claimed = claim_account_achievements(page, name, status_callback)
+            extract_collection_stats(page, account_id)
+            if claimed == 0:
+                safe_notify(status_callback, f"[{name}] ℹ️ Aucun nouveau succès à réclamer pour le moment.", "info")
+            return claimed
+        finally:
+            context.close()
+
+def run_sync_friends_standalone(account_id, status_callback=None):
+    """Exécute manuellement l'interconnexion d'amis pour un compte."""
+    config = load_config()
+    acc = get_account_info(account_id)
+    name = acc.get("name", account_id)
+    p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
+    exe_path = get_browser_executable_for_account(account_id)
+
+    safe_notify(status_callback, f"[{name}] 🤝 Connexion pour synchroniser les amis...", "info")
+    kill_browser_processes(account_id)
+
+    with sync_playwright() as p:
+        context = p.chromium.launch_persistent_context(
+            user_data_dir=str(p_dir),
+            executable_path=exe_path,
+            headless=True,
+            viewport={"width": 1366, "height": 768},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+            args=get_browser_launch_args(account_id)
+        )
+        apply_stealth(context)
+        page = context.pages[0] if context.pages else context.new_page()
+        try:
+            page.goto("https://wiki-masters.com/friends", wait_until="domcontentloaded", timeout=25000)
+            sync_account_friends(page, acc, config.get("accounts", []), status_callback)
+            safe_notify(status_callback, f"[{name}] 🤝 Amis synchronisés avec succès !", "success")
+        finally:
+            context.close()
+
+def transfer_cards(source_account_id, target_account_name, rarities, keep_duplicates_only=False, status_callback=None):
+    """Transfère des cartes par lot entre deux comptes selon les raretés sélectionnées."""
+    from transfer import execute_card_transfer
+    return execute_card_transfer(
+        source_account_id=source_account_id,
+        target_account_name=target_account_name,
+        rarities=rarities,
+        keep_duplicates_only=keep_duplicates_only,
+        status_callback=status_callback
+    )
+
 
 
 def is_account_configured(account_id):
@@ -1056,6 +1313,23 @@ def claim_account(account_id, headless=True, status_callback=None):
                     "screenshot": latest_screenshot
                 })
 
+            # 1. Extraction des statistiques réelles de collection (total et raretés)
+            col_stats = extract_collection_stats(page, account_id)
+
+            # 2. Auto-claim des succès si l'option est cochée
+            if acc.get("auto_achievements", True):
+                try:
+                    claim_account_achievements(page, name, status_callback)
+                except Exception:
+                    pass
+
+            # 3. Interconnexion automatique des amis si l'option est cochée
+            if acc.get("auto_friends", True):
+                try:
+                    sync_account_friends(page, acc, config.get("accounts", []), status_callback)
+                except Exception:
+                    pass
+
             context.close()
             context = None
 
@@ -1073,6 +1347,7 @@ def claim_account(account_id, headless=True, status_callback=None):
                     "timer_str": timer_str,
                     "stock": f"{final_stock} / 10",
                     "screenshot": latest_screenshot,
+                    "collection_stats": col_stats or get_account_collection_stats(account_id),
                     "details": f"🎉 {total_packs_opened} paquet(s) ouvert(s) ! [{global_rarity_summary}] | Prochain dans {timer_str}"
                 }
             else:
@@ -1083,6 +1358,7 @@ def claim_account(account_id, headless=True, status_callback=None):
                     "seconds_left": timer_sec,
                     "timer_str": timer_str,
                     "stock": f"{final_stock} / 10",
+                    "collection_stats": col_stats or get_account_collection_stats(account_id),
                     "details": f"📦 Stock : {final_stock}/10 | Prochain paquet dans {timer_str}"
                 }
 

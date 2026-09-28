@@ -1,11 +1,12 @@
 {
-  "version": "1.0.6",
+  "version": "2.0.0",
   "github_repo": "priouzob/wikimasters-autoclaim",
   "branch": "main",
   "files": [
     "engine.py",
     "gui.py",
     "stealth.py",
+    "transfer.py",
     "updater.py"
   ]
 }

@@ -13,6 +13,7 @@ config.json
 history.json
 stats.json
 best_cards.json
+collection_stats.json
 
 # Captures d'écran (contiennent infos de compte)
 screenshots/

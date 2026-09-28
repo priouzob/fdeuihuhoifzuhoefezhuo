@@ -608,6 +608,284 @@ class TopCardsModal(QDialog):
             engine.delete_account_card(self.current_acc_id, card_index)
             self.refresh_cards_view()
 
+class TransferCardsModal(QDialog):
+    transfer_completed = Signal()
+
+    def __init__(self, initial_source_id=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("🔄 Transfert de Cartes par Rareté — WikiMasters")
+        self.resize(760, 680)
+        self.setMinimumSize(680, 560)
+        self.setStyleSheet(DARK_STYLE + f"QDialog{{background:{C_BG};}}")
+
+        self.accounts = engine.get_accounts()
+        if not self.accounts:
+            self.accounts = [{"id": "compte_1", "name": "Compte 1"}]
+
+        self.initial_source_id = initial_source_id or self.accounts[0]["id"]
+        self.worker = None
+
+        self.init_ui()
+        self.update_source_account()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(14)
+
+        # ── Header ──
+        h_layout = QHBoxLayout()
+        icon = QLabel("🔄")
+        icon.setStyleSheet("font-size: 26px;")
+        t_col = QVBoxLayout()
+        t_col.setSpacing(2)
+        title = QLabel("Transfert de Cartes Automatique")
+        title.setStyleSheet("font-size: 17px; font-weight: 800; color: #34d399;")
+        subtitle = QLabel("Transfère des lots de cartes (jusqu'à 100 par échange) selon leur rareté d'un compte à un autre.")
+        subtitle.setStyleSheet(f"font-size: 11px; color: {C_MUTED};")
+        t_col.addWidget(title)
+        t_col.addWidget(subtitle)
+        h_layout.addWidget(icon)
+        h_layout.addLayout(t_col)
+        h_layout.addStretch()
+        layout.addLayout(h_layout)
+
+        layout.addWidget(make_separator())
+
+        # ── Sélection Source & Destination ──
+        acc_frame = QFrame()
+        acc_frame.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 12px; padding: 12px;")
+        acc_layout = QHBoxLayout(acc_frame)
+        acc_layout.setSpacing(16)
+
+        # Source
+        src_col = QVBoxLayout()
+        src_col.setSpacing(6)
+        src_lbl = QLabel("Compte Source (Envoyeur) :")
+        src_lbl.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT};")
+        self.cb_source = QComboBox()
+        self.cb_source.setStyleSheet(f"QComboBox {{ background: {C_CARD}; border: 1px solid {C_BORDER2}; border-radius: 8px; padding: 8px 12px; color: {C_TEXT}; font-weight: 600; font-size: 12px; }}")
+        for a in self.accounts:
+            self.cb_source.addItem(f"👤 {a.get('name', a['id'])}", a["id"])
+        
+        idx = self.cb_source.findData(self.initial_source_id)
+        if idx >= 0:
+            self.cb_source.setCurrentIndex(idx)
+        self.cb_source.currentIndexChanged.connect(self.update_source_account)
+        src_col.addWidget(src_lbl)
+        src_col.addWidget(self.cb_source)
+
+        arrow_lbl = QLabel("➡️")
+        arrow_lbl.setStyleSheet("font-size: 22px; margin-top: 14px;")
+
+        # Destination
+        dst_col = QVBoxLayout()
+        dst_col.setSpacing(6)
+        dst_lbl = QLabel("Compte Destinataire (Receveur) :")
+        dst_lbl.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT};")
+        self.cb_target = QComboBox()
+        self.cb_target.setStyleSheet(f"QComboBox {{ background: {C_CARD}; border: 1px solid {C_BORDER2}; border-radius: 8px; padding: 8px 12px; color: {C_TEXT}; font-weight: 600; font-size: 12px; }}")
+        dst_col.addWidget(dst_lbl)
+        dst_col.addWidget(self.cb_target)
+
+        acc_layout.addLayout(src_col, 1)
+        acc_layout.addWidget(arrow_lbl)
+        acc_layout.addLayout(dst_col, 1)
+        layout.addWidget(acc_frame)
+
+        # ── Raretés ──
+        rarity_frame = QFrame()
+        rarity_frame.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 12px; padding: 12px;")
+        rf_layout = QVBoxLayout(rarity_frame)
+        rf_layout.setSpacing(10)
+
+        rf_title_row = QHBoxLayout()
+        rf_title = QLabel("Raretés à transférer :")
+        rf_title.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT};")
+        rf_title_row.addWidget(rf_title)
+        rf_title_row.addStretch()
+
+        # Boutons filtres rapides
+        btn_c_only = QPushButton("Communes (C)")
+        btn_c_only.setStyleSheet(f"font-size: 10px; padding: 3px 8px; border-radius: 5px;")
+        btn_c_only.clicked.connect(lambda: self.select_rarity_preset(["C"]))
+
+        btn_c_pc = QPushButton("C + PC")
+        btn_c_pc.setStyleSheet(f"font-size: 10px; padding: 3px 8px; border-radius: 5px;")
+        btn_c_pc.clicked.connect(lambda: self.select_rarity_preset(["C", "PC"]))
+
+        btn_all = QPushButton("Tout sélectionner")
+        btn_all.setStyleSheet(f"font-size: 10px; padding: 3px 8px; border-radius: 5px;")
+        btn_all.clicked.connect(lambda: self.select_rarity_preset(["C", "PC", "R", "SR", "UR", "L"]))
+
+        btn_none = QPushButton("Tout décocher")
+        btn_none.setStyleSheet(f"font-size: 10px; padding: 3px 8px; border-radius: 5px;")
+        btn_none.clicked.connect(lambda: self.select_rarity_preset([]))
+
+        rf_title_row.addWidget(btn_c_only)
+        rf_title_row.addWidget(btn_c_pc)
+        rf_title_row.addWidget(btn_all)
+        rf_title_row.addWidget(btn_none)
+        rf_layout.addLayout(rf_title_row)
+
+        chk_row = QHBoxLayout()
+        chk_row.setSpacing(16)
+        self.rarity_checks = {}
+
+        rarities_def = [
+            ("C", "⚪ Commune", "#94a3b8", True),
+            ("PC", "🔷 Peu Commune", "#38bdf8", False),
+            ("R", "✨ Rare", "#34d399", False),
+            ("SR", "⭐ Super Rare", "#a855f7", False),
+            ("UR", "💎 Ultra Rare", "#ec4899", False),
+            ("L", "👑 Légendaire", "#fbbf24", False)
+        ]
+
+        for code, label, color, default_chk in rarities_def:
+            chk = QCheckBox(label)
+            chk.setChecked(default_chk)
+            chk.setStyleSheet(f"QCheckBox {{ color: {color}; font-weight: 700; font-size: 12px; }}")
+            chk.toggled.connect(self.update_preview)
+            self.rarity_checks[code] = chk
+            chk_row.addWidget(chk)
+        chk_row.addStretch()
+        rf_layout.addLayout(chk_row)
+
+        # Options de mode
+        mode_box = QHBoxLayout()
+        mode_box.setSpacing(20)
+        self.rb_all = QRadioButton("📦  Tout transférer sans conserver d'exemplaire")
+        self.rb_all.setChecked(True)
+        self.rb_all.setToolTip("Transfère absolument toutes les cartes des raretés sélectionnées.")
+        self.rb_all.toggled.connect(self.update_preview)
+
+        self.rb_duplicates = QRadioButton("🛡️  Garder 1 exemplaire de chaque carte (Doublons uniquement)")
+        self.rb_duplicates.setChecked(False)
+        self.rb_duplicates.setToolTip("Ne transfère que les cartes en plusieurs exemplaires pour préserver la complétion de votre collection.")
+        self.rb_duplicates.toggled.connect(self.update_preview)
+
+        mode_box.addWidget(self.rb_all)
+        mode_box.addWidget(self.rb_duplicates)
+        mode_box.addStretch()
+        rf_layout.addLayout(mode_box)
+
+        layout.addWidget(rarity_frame)
+
+        # ── Résumé & Estimation ──
+        self.lbl_estimate = QLabel("📊  Estimation : En attente d'analyse...")
+        self.lbl_estimate.setStyleSheet(f"font-size: 12px; font-weight: 700; color: #a78bfa; padding: 4px 6px;")
+        layout.addWidget(self.lbl_estimate)
+
+        # ── Barre de progression & Logs ──
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFixedHeight(8)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet(f"QProgressBar {{ background: {C_CARD}; border-radius: 4px; }} QProgressBar::chunk {{ background: #10b981; border-radius: 4px; }}")
+        layout.addWidget(self.progress_bar)
+
+        self.log_view = QTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setFixedHeight(120)
+        self.log_view.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 8px; color: {C_TEXT}; font-family: Consolas, monospace; font-size: 11px; padding: 6px;")
+        layout.addWidget(self.log_view)
+
+        # ── Boutons bas ──
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(12)
+
+        self.btn_start = QPushButton("🚀  Lancer le transfert")
+        self.btn_start.setObjectName("btnPrimary")
+        self.btn_start.setStyleSheet(f"QPushButton {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #047857); border: 1px solid #10b981; color: white; font-size: 13px; font-weight: 800; padding: 9px 20px; border-radius: 8px; }} QPushButton:hover {{ background: #047857; }}")
+        self.btn_start.clicked.connect(self.start_transfer)
+
+        self.btn_close = QPushButton("✕  Fermer")
+        self.btn_close.clicked.connect(self.accept)
+
+        btn_box.addStretch()
+        btn_box.addWidget(self.btn_start)
+        btn_box.addWidget(self.btn_close)
+        layout.addLayout(btn_box)
+
+    def select_rarity_preset(self, codes):
+        for code, chk in self.rarity_checks.items():
+            chk.setChecked(code in codes)
+        self.update_preview()
+
+    def update_source_account(self):
+        source_id = self.cb_source.currentData()
+        self.cb_target.clear()
+        for a in self.accounts:
+            if a["id"] != source_id:
+                self.cb_target.addItem(f"👤 {a.get('name', a['id'])}", a["id"])
+        self.update_preview()
+
+    def update_preview(self):
+        source_id = self.cb_source.currentData()
+        stats = engine.get_account_collection_stats(source_id)
+        selected_r = [code for code, chk in self.rarity_checks.items() if chk.isChecked()]
+        if not stats or "rarityCounts" not in stats:
+            self.lbl_estimate.setText(f"📊  Raretés sélectionnées : {', '.join(selected_r) if selected_r else 'Aucune'}")
+            return
+        rc = stats.get("rarityCounts", {})
+        total_matching = sum(rc.get(r, 0) for r in selected_r)
+        batches = max(1, (total_matching + 99) // 100) if total_matching > 0 else 0
+        mode_str = " (doublons uniquement)" if self.rb_duplicates.isChecked() else ""
+        self.lbl_estimate.setText(f"📊  {total_matching} cartes correspondantes détectées sur ce compte (~{batches} lot(s) de 100 cartes){mode_str}")
+
+    def log(self, text, level="info"):
+        color = "#10b981" if level == "success" else "#38bdf8" if level == "info" else "#f59e0b" if level == "warning" else "#ef4444"
+        ts = datetime.now().strftime("%H:%M:%S")
+        self.log_view.append(f"<span style='color:#6b7280;'>[{ts}]</span> <span style='color:{color};'>{text}</span>")
+        sb = self.log_view.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def start_transfer(self):
+        source_id = self.cb_source.currentData()
+        target_name = self.cb_target.currentText().replace("👤 ", "").strip()
+        selected_r = [code for code, chk in self.rarity_checks.items() if chk.isChecked()]
+        if not selected_r:
+            QMessageBox.warning(self, "Attention", "Veuillez sélectionner au moins une rareté à transférer.")
+            return
+
+        keep_dup = self.rb_duplicates.isChecked()
+        mode_label = "Doublons uniquement" if keep_dup else "Tous les exemplaires"
+
+        confirm = QMessageBox.question(
+            self, "Confirmer le transfert",
+            f"Êtes-vous sûr de vouloir transférer les cartes ({', '.join(selected_r)})\n"
+            f"depuis '{self.cb_source.currentText()}' vers '{target_name}' ?\n\n"
+            f"Mode : {mode_label}\n"
+            f"Les lots d'échange seront envoyés et validés automatiquement.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        self.btn_start.setEnabled(False)
+        self.cb_source.setEnabled(False)
+        self.cb_target.setEnabled(False)
+        self.progress_bar.setRange(0, 0)
+        self.log(f"🚀 Démarrage du transfert vers {target_name}...", "info")
+
+        self.worker = TransferWorker(source_id, target_name, selected_r, keep_dup)
+        self.worker.log_signal.connect(self.log)
+        self.worker.finished_signal.connect(self.on_transfer_finished)
+        self.worker.start()
+
+    def on_transfer_finished(self, ok, msg):
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(100 if ok else 0)
+        self.btn_start.setEnabled(True)
+        self.cb_source.setEnabled(True)
+        self.cb_target.setEnabled(True)
+        self.transfer_completed.emit()
+        if ok:
+            QMessageBox.information(self, "Transfert Réussi", msg)
+        else:
+            QMessageBox.warning(self, "Transfert Incomplet", msg)
+
 class AddAccountDialog(QDialog):
     def __init__(self, default_name="Compte", parent=None):
         super().__init__(parent)
@@ -790,6 +1068,58 @@ class BackgroundClaimWorker(QThread):
             time.sleep(1.0)
         self.cycle_finished_signal.emit()
 
+class TransferWorker(QThread):
+    log_signal = Signal(str, str)
+    finished_signal = Signal(bool, str)
+
+    def __init__(self, source_account_id, target_name, rarities, keep_duplicates_only):
+        super().__init__()
+        self.source_account_id = source_account_id
+        self.target_name = target_name
+        self.rarities = rarities
+        self.keep_duplicates_only = keep_duplicates_only
+
+    def run(self):
+        ok, msg = engine.transfer_cards(
+            self.source_account_id,
+            self.target_name,
+            self.rarities,
+            keep_duplicates_only=self.keep_duplicates_only,
+            status_callback=lambda text, level: self.log_signal.emit(text, level)
+        )
+        self.finished_signal.emit(ok, msg)
+
+class ClaimAchievementsWorker(QThread):
+    log_signal = Signal(str, str)
+    finished_signal = Signal(str, int)
+
+    def __init__(self, account_id):
+        super().__init__()
+        self.account_id = account_id
+
+    def run(self):
+        claimed = engine.run_claim_achievements_standalone(
+            self.account_id,
+            status_callback=lambda text, level: self.log_signal.emit(text, level)
+        )
+        self.finished_signal.emit(self.account_id, claimed)
+
+class SyncFriendsWorker(QThread):
+    log_signal = Signal(str, str)
+    finished_signal = Signal(str)
+
+    def __init__(self, account_id):
+        super().__init__()
+        self.account_id = account_id
+
+    def run(self):
+        engine.run_sync_friends_standalone(
+            self.account_id,
+            status_callback=lambda text, level: self.log_signal.emit(text, level)
+        )
+        self.finished_signal.emit(self.account_id)
+
+
 # ─── Donut Timer ─────────────────────────────────────────────────────────────
 
 class DonutTimer(QWidget):
@@ -892,6 +1222,9 @@ class AccountCard(QFrame):
     delete_requested = Signal(str)
     rename_requested = Signal(str, str)
     open_browser_requested = Signal(str)
+    transfer_requested = Signal(str)
+    claim_achievements_requested = Signal(str)
+    sync_friends_requested = Signal(str)
 
     def __init__(self, account_id, title, theme_idx=0, parent=None):
         super().__init__(parent)
@@ -1041,8 +1374,12 @@ class AccountCard(QFrame):
         self.lbl_total = QLabel("🎴  Total : 0 paquet(s)")
         self.lbl_total.setStyleSheet(f"font-size:11px; color:{C_MUTED};")
 
+        self.lbl_collection = QLabel("🃏  Collection : —")
+        self.lbl_collection.setStyleSheet(f"font-size:11px; font-weight:700; color:{C_TEXT};")
+        self.lbl_collection.setWordWrap(True)
+
         self.lbl_rarity = QLabel("⭐  Raretés : —")
-        self.lbl_rarity.setStyleSheet(f"font-size:11px; color:{C_TEAL}; font-weight:600;")
+        self.lbl_rarity.setStyleSheet(f"font-size:10px; color:{C_TEAL}; font-weight:600;")
         self.lbl_rarity.setWordWrap(True)
 
         self.lbl_last_time = QLabel("🕐  Dernier : —")
@@ -1050,6 +1387,7 @@ class AccountCard(QFrame):
 
         stats_col.addWidget(self.lbl_stock)
         stats_col.addWidget(self.lbl_total)
+        stats_col.addWidget(self.lbl_collection)
         stats_col.addWidget(self.lbl_rarity)
         stats_col.addWidget(self.lbl_last_time)
         stats_col.addStretch()
@@ -1085,31 +1423,75 @@ class AccountCard(QFrame):
         self.preview_frame.setCursor(Qt.PointingHandCursor)
         layout.addWidget(self.preview_frame)
 
-        # ── Boutons Milieu : Top 10 + Ouvrir Navigateur ──────────────────
+        # ── Options modulaires (Auto-succès & Auto-amis) ──────────────────
+        opts_box = QHBoxLayout()
+        opts_box.setSpacing(12)
+
+        self.chk_auto_achievements = QCheckBox("🏆 Auto-succès")
+        self.chk_auto_achievements.setChecked(acc.get("auto_achievements", True))
+        self.chk_auto_achievements.setToolTip("Réclame automatiquement les succès débloqués et les Wikibidous associés")
+        self.chk_auto_achievements.setStyleSheet(f"QCheckBox {{ color: {C_TEXT}; font-size: 11px; font-weight: 600; }}")
+        self.chk_auto_achievements.toggled.connect(lambda v: engine.set_account_option(self.account_id, "auto_achievements", v))
+
+        self.chk_auto_friends = QCheckBox("🤝 Auto-amis")
+        self.chk_auto_friends.setChecked(acc.get("auto_friends", True))
+        self.chk_auto_friends.setToolTip("Accepte automatiquement les demandes d'amis et interconnecte tous vos comptes")
+        self.chk_auto_friends.setStyleSheet(f"QCheckBox {{ color: {C_TEXT}; font-size: 11px; font-weight: 600; }}")
+        self.chk_auto_friends.toggled.connect(lambda v: engine.set_account_option(self.account_id, "auto_friends", v))
+
+        opts_box.addWidget(self.chk_auto_achievements)
+        opts_box.addWidget(self.chk_auto_friends)
+        opts_box.addStretch()
+        layout.addLayout(opts_box)
+
+        # ── Boutons Milieu : Top 10 + Transférer + Succès + Ouvrir Navigateur ─
         mid_btns = QHBoxLayout()
         mid_btns.setSpacing(6)
 
-        self.btn_top_cards = QPushButton("🏆  Top 10")
+        self.btn_top_cards = QPushButton("🏆 Top 10")
         self.btn_top_cards.setStyleSheet(
             f"QPushButton {{ background:{C_SURFACE}; color:#e0e7ff; border:1px solid #6366f1; "
-            f"border-radius:8px; padding:6px 8px; font-size:11px; font-weight:700; }} "
+            f"border-radius:8px; padding:6px 6px; font-size:11px; font-weight:700; }} "
             f"QPushButton:hover {{ background:#312e81; border-color:#818cf8; color:#ffffff; }}"
         )
         self.btn_top_cards.setCursor(Qt.PointingHandCursor)
         self.btn_top_cards.setToolTip("Afficher le classement des 10 meilleures cartes de ce compte")
         self.btn_top_cards.clicked.connect(self.open_top_cards)
 
-        self.btn_open_browser = QPushButton(f"{b_icon}  Ouvrir {b_display}")
+        self.btn_transfer = QPushButton("🔄 Transférer")
+        self.btn_transfer.setStyleSheet(
+            f"QPushButton {{ background:{C_SURFACE}; color:#a7f3d0; border:1px solid #059669; "
+            f"border-radius:8px; padding:6px 6px; font-size:11px; font-weight:700; }} "
+            f"QPushButton:hover {{ background:#064e3b; border-color:#34d399; color:#ffffff; }}"
+        )
+        self.btn_transfer.setCursor(Qt.PointingHandCursor)
+        self.btn_transfer.setToolTip(f"Transférer des cartes depuis {self.title_text} vers un autre compte")
+        self.btn_transfer.clicked.connect(lambda: self.transfer_requested.emit(self.account_id))
+
+        self.btn_achieve = QPushButton("🏆 Succès")
+        self.btn_achieve.setStyleSheet(
+            f"QPushButton {{ background:{C_SURFACE}; color:#fef08a; border:1px solid #ca8a04; "
+            f"border-radius:8px; padding:6px 6px; font-size:11px; font-weight:700; }} "
+            f"QPushButton:hover {{ background:#713f12; border-color:#eab308; color:#ffffff; }}"
+        )
+        self.btn_achieve.setCursor(Qt.PointingHandCursor)
+        self.btn_achieve.setToolTip(f"Réclamer manuellement les succès maintenant pour {self.title_text}")
+        self.btn_achieve.clicked.connect(lambda: self.claim_achievements_requested.emit(self.account_id))
+
+        self.btn_open_browser = QPushButton(f"{b_icon}")
+        self.btn_open_browser.setFixedWidth(34)
         self.btn_open_browser.setStyleSheet(
             f"QPushButton {{ background:{C_SURFACE}; color:{C_TEXT}; border:1px solid {self._accent}77; "
-            f"border-radius:8px; padding:6px 8px; font-size:11px; font-weight:600; }} "
+            f"border-radius:8px; padding:6px 4px; font-size:12px; font-weight:600; }} "
             f"QPushButton:hover {{ background:{self._accent}22; border-color:{self._accent}; color:#ffffff; }}"
         )
         self.btn_open_browser.setCursor(Qt.PointingHandCursor)
-        self.btn_open_browser.setToolTip(f"Ouvre une fenêtre {b_display} connectée à WikiMasters avec ce compte")
+        self.btn_open_browser.setToolTip(f"Ouvre {b_display} connecté avec la session de ce compte")
         self.btn_open_browser.clicked.connect(lambda: self.open_browser_requested.emit(self.account_id))
 
         mid_btns.addWidget(self.btn_top_cards)
+        mid_btns.addWidget(self.btn_transfer)
+        mid_btns.addWidget(self.btn_achieve)
         mid_btns.addWidget(self.btn_open_browser)
         layout.addLayout(mid_btns)
 
@@ -1217,6 +1599,39 @@ class AccountCard(QFrame):
         self.total_claimed = total_p
         self.lbl_total.setText(f"🎴  Total : {total_p} paquet(s)")
         self.update_top_cards_preview()
+        self.update_collection_stats_display()
+
+    def update_collection_stats_display(self):
+        stats = engine.get_account_collection_stats(self.account_id)
+        if stats and "total" in stats:
+            total = stats.get("total", 0)
+            rc = stats.get("rarityCounts", {})
+            breakdown = []
+            if rc.get("L", 0) > 0: breakdown.append(f"{rc['L']} 👑")
+            if rc.get("UR", 0) > 0: breakdown.append(f"{rc['UR']} 💎")
+            if rc.get("SR", 0) > 0: breakdown.append(f"{rc['SR']} ⭐")
+            if rc.get("R", 0) > 0: breakdown.append(f"{rc['R']} ✨")
+            if rc.get("PC", 0) > 0: breakdown.append(f"{rc['PC']} 🔷")
+            if rc.get("C", 0) > 0: breakdown.append(f"{rc['C']} ⚪")
+
+            summary_str = ", ".join(breakdown) if breakdown else ""
+            fmt_total = f"{total:,}".replace(",", " ")
+            self.lbl_collection.setText(f"🃏  {fmt_total} cartes ({summary_str})")
+            self.lbl_collection.setToolTip(
+                f"Collection de {self.title_text} :\n"
+                f"• Total : {fmt_total} cartes\n"
+                f"• Légendaires (L) : {rc.get('L', 0)}\n"
+                f"• Ultra Rares (UR) : {rc.get('UR', 0)}\n"
+                f"• Super Rares (SR) : {rc.get('SR', 0)}\n"
+                f"• Rares (R) : {rc.get('R', 0)}\n"
+                f"• Peu Communes (PC) : {rc.get('PC', 0)}\n"
+                f"• Communes (C) : {rc.get('C', 0)}\n"
+                f"Dernière synchro : {stats.get('updated_at', 'récemment')}"
+            )
+        else:
+            self.lbl_collection.setText("🃏  Collection : En attente...")
+            self.lbl_collection.setToolTip("Synchronisation automatique au prochain tirage ou actualisation")
+
 
     def _load_preview(self, path):
         self.screenshot_path = path
@@ -1453,6 +1868,20 @@ class MainWindow(QMainWindow):
         btn_hist.clicked.connect(self.open_history)
         hh.addWidget(btn_hist)
 
+        btn_transfer = QPushButton("🔄  Transférer")
+        btn_transfer.setObjectName("btnSmall")
+        btn_transfer.setStyleSheet("QPushButton { background:#064e3b; color:#a7f3d0; border:1px solid #059669; font-weight:700; border-radius:6px; padding:4px 10px; } QPushButton:hover { background:#047857; color:white; }")
+        btn_transfer.setToolTip("Transférer des cartes en lot par rareté entre vos comptes")
+        btn_transfer.clicked.connect(lambda: self.open_transfer_modal())
+        hh.addWidget(btn_transfer)
+
+        btn_friends = QPushButton("🤝  Amis")
+        btn_friends.setObjectName("btnSmall")
+        btn_friends.setStyleSheet("QPushButton { background:#1e1b4b; color:#c7d2fe; border:1px solid #4338ca; font-weight:700; border-radius:6px; padding:4px 10px; } QPushButton:hover { background:#312e81; color:white; }")
+        btn_friends.setToolTip("Synchroniser et interconnecter tous les comptes en amis")
+        btn_friends.clicked.connect(self.sync_all_friends)
+        hh.addWidget(btn_friends)
+
         self.btn_toggle = QPushButton("⏸  Pause")
         self.btn_toggle.setObjectName("btnPrimary")
         self.btn_toggle.setObjectName("btnSmall")
@@ -1491,6 +1920,14 @@ class MainWindow(QMainWindow):
         sep1 = QLabel("|")
         sep1.setStyleSheet(f"color:{C_BORDER2};")
         sh.addWidget(sep1)
+
+        self.lbl_total_cards = QLabel("🃏  Collection : —")
+        self.lbl_total_cards.setStyleSheet(f"font-size:11px; font-weight:600; color:{C_GREEN};")
+        sh.addWidget(self.lbl_total_cards)
+
+        sep2 = QLabel("|")
+        sep2.setStyleSheet(f"color:{C_BORDER2};")
+        sh.addWidget(sep2)
 
         self.lbl_next_pull = QLabel("⏱  Prochain tirage : —")
         self.lbl_next_pull.setStyleSheet(f"font-size:11px; font-weight:600; color:{C_ACCENT2};")
@@ -1600,6 +2037,9 @@ class MainWindow(QMainWindow):
             card.delete_requested.connect(self.confirm_delete_account)
             card.rename_requested.connect(self.handle_account_renamed)
             card.open_browser_requested.connect(self.launch_account_browser)
+            card.transfer_requested.connect(self.open_transfer_modal)
+            card.claim_achievements_requested.connect(self.claim_achievements_for_account)
+            card.sync_friends_requested.connect(self.sync_friends_for_account)
             self.cards_layout.addWidget(card)
             self.account_cards[acc["id"]] = card
 
@@ -1607,6 +2047,60 @@ class MainWindow(QMainWindow):
         self.add_account_frame = AddAccountCard(self)
         self.add_account_frame.clicked.connect(self.prompt_add_account)
         self.cards_layout.addWidget(self.add_account_frame)
+
+    def open_transfer_modal(self, source_account_id=None):
+        dlg = TransferCardsModal(initial_source_id=source_account_id, parent=self)
+        dlg.transfer_completed.connect(self.refresh_all_collection_stats)
+        dlg.exec()
+
+    def refresh_all_collection_stats(self):
+        for card in self.account_cards.values():
+            card.update_collection_stats_display()
+        self.update_global_stats()
+
+    def claim_achievements_for_account(self, account_id):
+        card = self.account_cards.get(account_id)
+        name = card.title_text if card else account_id
+        self.log(f"[{name}] 🏆 Réclamation des succès en arrière-plan...", "info")
+        worker = ClaimAchievementsWorker(account_id)
+        worker.log_signal.connect(self.log)
+        def on_done(aid, claimed):
+            if card:
+                card.update_collection_stats_display()
+            self.update_global_stats()
+            if claimed > 0:
+                self.play_chime()
+        worker.finished_signal.connect(on_done)
+        worker.start()
+        if not hasattr(self, "_active_bg_workers"):
+            self._active_bg_workers = []
+        self._active_bg_workers.append(worker)
+
+    def sync_friends_for_account(self, account_id):
+        card = self.account_cards.get(account_id)
+        name = card.title_text if card else account_id
+        self.log(f"[{name}] 🤝 Synchronisation des amis...", "info")
+        worker = SyncFriendsWorker(account_id)
+        worker.log_signal.connect(self.log)
+        worker.finished_signal.connect(lambda aid: self.log(f"[{name}] ✓ Amis synchronisés avec succès !", "success"))
+        worker.start()
+        if not hasattr(self, "_active_bg_workers"):
+            self._active_bg_workers = []
+        self._active_bg_workers.append(worker)
+
+    def sync_all_friends(self):
+        self.log("🤝 Synchronisation et interconnexion de tous les comptes...", "info")
+        configured = [acc["id"] for acc in engine.get_accounts() if engine.is_account_configured(acc["id"])]
+        if not configured:
+            self.log("Aucun compte configuré.", "warning")
+            return
+        worker = SyncFriendsWorker(configured[0])
+        worker.log_signal.connect(self.log)
+        worker.finished_signal.connect(lambda aid: self.log("✓ Tous les comptes sont interconnectés en amis !", "success"))
+        worker.start()
+        if not hasattr(self, "_active_bg_workers"):
+            self._active_bg_workers = []
+        self._active_bg_workers.append(worker)
 
     def prompt_add_account(self):
         try:
@@ -1693,6 +2187,15 @@ class MainWindow(QMainWindow):
             history = engine.load_history()
             total = sum(h.get("packs_count", 1) for h in history)
         self.lbl_total_packs.setText(f"📦  Total : {total} paquet(s) ouverts")
+
+        col_stats = engine.load_collection_stats()
+        total_cards_fleet = sum(cs.get("total", 0) for cs in col_stats.values())
+        if hasattr(self, "lbl_total_cards"):
+            if total_cards_fleet > 0:
+                fmt_tc = f"{total_cards_fleet:,}".replace(",", " ")
+                self.lbl_total_cards.setText(f"🃏  Collection : {fmt_tc} cartes")
+            else:
+                self.lbl_total_cards.setText("🃏  Collection : —")
 
         cards = list(self.account_cards.values())
         active = [c.remaining_seconds for c in cards if c.is_connected and c.remaining_seconds > 0]
