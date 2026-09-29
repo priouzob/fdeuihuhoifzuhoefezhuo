@@ -978,6 +978,17 @@ def transfer_cards(source_account_id, target_account_name, rarities, keep_duplic
         status_callback=status_callback
     )
 
+def transfer_bulk_cards(source_account_ids, target_account_name, rarities, keep_duplicates_only=False, status_callback=None):
+    """Centralise et donne toutes les cartes depuis plusieurs comptes sources vers un seul compte cible."""
+    from transfer import execute_bulk_donation
+    return execute_bulk_donation(
+        source_account_ids=source_account_ids,
+        target_account_name=target_account_name,
+        rarities=rarities,
+        keep_duplicates_only=keep_duplicates_only,
+        status_callback=status_callback
+    )
+
 
 
 def is_account_configured(account_id):

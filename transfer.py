@@ -196,14 +196,17 @@ def accept_incoming_trades(page, from_username=None):
     }""", from_username)
     return res
 
-def execute_card_transfer(source_account_id, target_account_name, rarities, keep_duplicates_only=False, status_callback=None):
+def execute_bulk_donation(source_account_ids, target_account_name, rarities, keep_duplicates_only=False, status_callback=None):
     """
-    Exécute le transfert de cartes de source_account_id vers target_account_name.
-    1. Ouvre le compte source.
-    2. Récupère les cartes correspondant aux raretés demandées.
-    3. Envoie des offres d'échange par lots de 100 cartes.
-    4. Si le compte destinataire est un des comptes enregistrés, ouvre le compte destinataire
-       et accepte automatiquement les échanges reçus.
+    Exécute le don centralisé de cartes depuis PLUSIEURS comptes sources vers UN compte cible unique.
+    1. Pour chaque compte source sélectionné :
+       - Connexion au profil source
+       - Récupération des cartes selon les raretés
+       - Envoi des offres d'échange (par lots de 100 cartes)
+       - Extraction des nouvelles stats du compte source
+    2. Connexion au compte cible (une seule fois à la fin) :
+       - Réception et acceptation automatique de TOUS les échanges reçus
+       - Extraction des nouvelles stats du compte cible
     """
     import engine
 
@@ -215,144 +218,196 @@ def execute_card_transfer(source_account_id, target_account_name, rarities, keep
                 pass
 
     config = engine.load_config()
-    source_acc = engine.get_account_info(source_account_id)
-    source_name = source_acc.get("name", source_account_id)
-    source_pdir = engine.BASE_DIR / source_acc.get("profile_dir", f"profiles/{source_account_id}")
-    exe_path = engine.get_browser_executable_for_account(source_account_id)
+    target_acc = next((a for a in config.get("accounts", []) if a.get("name", "").lower() == target_account_name.lower() or a.get("id") == target_account_name), None)
+    if not target_acc:
+        return False, f"Compte destinataire '{target_account_name}' introuvable."
 
-    notify(f"[{source_name}] 🔄 Préparation du transfert vers {target_account_name}...", "info")
+    target_id = target_acc.get("id")
+    target_real_name = target_acc.get("name", target_account_name)
 
-    engine.kill_browser_processes(source_account_id)
+    # Exclure le compte cible de la liste des donateurs
+    valid_sources = [sid for sid in source_account_ids if sid != target_id]
+    if not valid_sources:
+        return False, "Aucun compte donateur sélectionné."
 
-    total_transferred = 0
-    batches_count = 0
+    notify(f"🌟 Lancement du don centralisé : {len(valid_sources)} compte(s) donateur(s) vers {target_real_name}...", "info")
 
-    with sync_playwright() as p:
-        # 1. ÉTAPE 1 : Connexion au compte source
-        context = p.chromium.launch_persistent_context(
-            user_data_dir=str(source_pdir),
-            executable_path=exe_path,
-            headless=True,
-            viewport={"width": 1366, "height": 768},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
-            args=engine.get_browser_launch_args(source_account_id)
-        )
-        apply_stealth(context)
-        page = context.pages[0] if context.pages else context.new_page()
+    grand_total_transferred = 0
+    accounts_donated = []
+    failed_sources = []
 
-        try:
-            page.goto("https://wiki-masters.com/trades", wait_until="domcontentloaded", timeout=25000)
-            time.sleep(1.5)
+    for s_idx, source_id in enumerate(valid_sources, 1):
+        source_acc = engine.get_account_info(source_id)
+        source_name = source_acc.get("name", source_id)
+        source_pdir = engine.BASE_DIR / source_acc.get("profile_dir", f"profiles/{source_id}")
+        exe_path = engine.get_browser_executable_for_account(source_id)
 
-            # Résolution de l'ID ami
-            recipient_id, my_id = get_friend_user_id(page, target_account_name)
-            if not recipient_id or not my_id:
-                # Essayer de chercher l'utilisateur
-                search_res = page.evaluate("""async (q) => {
-                    try {
-                        const r = await fetch(`/api/friends/search?q=${encodeURIComponent(q)}`);
-                        return await r.json();
-                    } catch(e) { return null; }
-                }""", target_account_name)
-                
-                users = (search_res or {}).get("users", [])
-                target_user = next((u for u in users if u.get("username", "").lower() == target_account_name.lower()), None)
-                if target_user:
-                    recipient_id = target_user.get("id")
-                    my_id = page.evaluate("""async () => {
-                        try {
-                            const r = await fetch('/api/user');
-                            const d = await r.json();
-                            return d.id;
-                        } catch(e) { return null; }
-                    }""")
-                    # Envoyer demande d'ami
-                    page.evaluate("""async (id) => {
-                        try {
-                            await fetch('/api/friends', {
-                                method: 'POST',
-                                headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify({addressee_id: id})
-                            });
-                        } catch(e) {}
-                    }""", recipient_id)
-                    notify(f"[{source_name}] 🤝 Demande d'ami envoyée à {target_account_name}. L'échange nécessite qu'il accepte.", "warning")
-                
+        notify(f"[{source_name}] 🔄 [{s_idx}/{len(valid_sources)}] Analyse des cartes à donner pour {target_real_name}...", "info")
+        engine.kill_browser_processes(source_id)
+
+        with sync_playwright() as p:
+            context = None
+            try:
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir=str(source_pdir),
+                    executable_path=exe_path,
+                    headless=True,
+                    viewport={"width": 1366, "height": 768},
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+                    args=engine.get_browser_launch_args(source_id)
+                )
+                apply_stealth(context)
+                page = context.pages[0] if context.pages else context.new_page()
+
+                try:
+                    page.goto("https://wiki-masters.com/trades", wait_until="domcontentloaded", timeout=25000)
+                except Exception:
+                    pass
+                time.sleep(1.2)
+
+                # Résolution de l'ID ami
+                recipient_id, my_id = get_friend_user_id(page, target_real_name)
                 if not recipient_id or not my_id:
-                    context.close()
-                    return False, f"Impossible de trouver l'identifiant pour {target_account_name}."
+                    # Recherche de l'utilisateur
+                    search_res = page.evaluate("""async (q) => {
+                        try {
+                            const r = await fetch(`/api/friends/search?q=${encodeURIComponent(q)}`);
+                            return await r.json();
+                        } catch(e) { return null; }
+                    }""", target_real_name)
 
-            notify(f"[{source_name}] 🔍 Analyse des cartes à transférer ({', '.join(rarities)})...", "info")
-            cards = get_cards_for_transfer(page, rarities, keep_duplicates_only=keep_duplicates_only)
+                    users = (search_res or {}).get("users", [])
+                    target_user = next((u for u in users if u.get("username", "").lower() == target_real_name.lower()), None)
+                    if target_user:
+                        recipient_id = target_user.get("id")
+                        my_id = page.evaluate("""async () => {
+                            try {
+                                const r = await fetch('/api/user');
+                                const d = await r.json();
+                                return d.id;
+                            } catch(e) { return null; }
+                        }""")
+                        page.evaluate("""async (id) => {
+                            try {
+                                await fetch('/api/friends', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({addressee_id: id})
+                                });
+                            } catch(e) {}
+                        }""", recipient_id)
+                        notify(f"[{source_name}] 🤝 Demande d'ami envoyée à {target_real_name}.", "warning")
 
-            if not cards:
-                context.close()
-                mode_str = " (doublons uniquement)" if keep_duplicates_only else ""
-                return False, f"Aucune carte {', '.join(rarities)}{mode_str} trouvée sur {source_name}."
+                if not recipient_id or not my_id:
+                    notify(f"[{source_name}] ⚠️ Impossible de résoudre l'ami {target_real_name}. Passage au compte suivant.", "warning")
+                    failed_sources.append(source_name)
+                    continue
 
-            notify(f"[{source_name}] 📦 {len(cards)} cartes prêtes au transfert. Envoi en cours...", "info")
+                notify(f"[{source_name}] 🔍 Analyse de la collection ({', '.join(rarities)})...", "info")
+                cards = get_cards_for_transfer(page, rarities, keep_duplicates_only=keep_duplicates_only)
 
-            # Découpage en lots de 100 cartes
-            chunks = [cards[i:i + MAX_CARDS_PER_TRADE] for i in range(0, len(cards), MAX_CARDS_PER_TRADE)]
-            batches_count = len(chunks)
+                if not cards:
+                    mode_str = " (doublons uniquement)" if keep_duplicates_only else ""
+                    notify(f"[{source_name}] ℹ️ Aucune carte correspondante {', '.join(rarities)}{mode_str} à donner sur ce compte.", "info")
+                    continue
 
-            for idx, chunk in enumerate(chunks, 1):
-                notify(f"[{source_name}] 🚀 Envoi du lot {idx}/{batches_count} ({len(chunk)} cartes)...", "info")
-                res = send_trade_offer(page, recipient_id, my_id, chunk)
-                if not res.get("ok"):
-                    notify(f"[{source_name}] ⚠️ Échec de l'envoi du lot {idx}: {res.get('error', 'Erreur')}", "error")
-                else:
-                    total_transferred += len(chunk)
-                    notify(f"[{source_name}] ✅ Lot {idx}/{batches_count} envoyé avec succès !", "success")
-                human_delay(1.5, 2.5)
+                notify(f"[{source_name}] 📦 {len(cards)} cartes prêtes au don. Envoi des lots...", "info")
 
-            # Mettre à jour les stats du compte source
-            engine.extract_collection_stats(page, source_account_id)
+                chunks = [cards[i:i + MAX_CARDS_PER_TRADE] for i in range(0, len(cards), MAX_CARDS_PER_TRADE)]
+                batches_count = len(chunks)
+                account_sent = 0
 
-        finally:
-            context.close()
+                for c_idx, chunk in enumerate(chunks, 1):
+                    notify(f"[{source_name}] 🚀 Envoi du lot {c_idx}/{batches_count} ({len(chunk)} cartes)...", "info")
+                    res = send_trade_offer(page, recipient_id, my_id, chunk)
+                    if not res.get("ok"):
+                        notify(f"[{source_name}] ⚠️ Échec de l'envoi du lot {c_idx}: {res.get('error', 'Erreur')}", "error")
+                    else:
+                        account_sent += len(chunk)
+                        grand_total_transferred += len(chunk)
+                        notify(f"[{source_name}] ✅ Lot {c_idx}/{batches_count} envoyé ({len(chunk)} cartes) !", "success")
+                    human_delay(1.0, 1.8)
 
-    # 2. ÉTAPE 2 : Si le compte destinataire est géré par le logiciel, accepter automatiquement !
-    target_acc = next((a for a in config.get("accounts", []) if a.get("name", "").lower() == target_account_name.lower()), None)
-    if target_acc and total_transferred > 0:
-        target_id = target_acc.get("id")
+                if account_sent > 0:
+                    accounts_donated.append((source_name, account_sent))
+                    engine.extract_collection_stats(page, source_id)
+
+            except Exception as e:
+                notify(f"[{source_name}] ⚠️ Erreur pendant le don : {e}", "error")
+                failed_sources.append(source_name)
+            finally:
+                if context:
+                    try:
+                        context.close()
+                    except Exception:
+                        pass
+                engine.kill_browser_processes(source_id)
+
+    # 2. ÉTAPE 2 : Connexion au compte destinataire pour TOUT valider d'un coup
+    if grand_total_transferred > 0:
         target_pdir = engine.BASE_DIR / target_acc.get("profile_dir", f"profiles/{target_id}")
         target_exe = engine.get_browser_executable_for_account(target_id)
 
-        notify(f"[{target_account_name}] 📥 Connexion pour accepter automatiquement les {total_transferred} cartes...", "info")
+        notify(f"[{target_real_name}] 📥 Connexion pour accepter automatiquement tous les dons reçus ({grand_total_transferred} cartes)...", "info")
         engine.kill_browser_processes(target_id)
 
         with sync_playwright() as p:
-            context = p.chromium.launch_persistent_context(
-                user_data_dir=str(target_pdir),
-                executable_path=target_exe,
-                headless=True,
-                viewport={"width": 1366, "height": 768},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
-                args=engine.get_browser_launch_args(target_id)
-            )
-            apply_stealth(context)
-            page = context.pages[0] if context.pages else context.new_page()
-
+            context = None
             try:
-                page.goto("https://wiki-masters.com/trades", wait_until="domcontentloaded", timeout=25000)
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir=str(target_pdir),
+                    executable_path=target_exe,
+                    headless=True,
+                    viewport={"width": 1366, "height": 768},
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+                    args=engine.get_browser_launch_args(target_id)
+                )
+                apply_stealth(context)
+                page = context.pages[0] if context.pages else context.new_page()
+
+                try:
+                    page.goto("https://wiki-masters.com/trades", wait_until="domcontentloaded", timeout=25000)
+                except Exception:
+                    pass
                 time.sleep(2.0)
 
-                # Accepter tous les échanges reçus venant de source_name
-                accept_res = accept_incoming_trades(page, from_username=source_name)
+                # Accepter TOUS les échanges reçus (tous initiateurs confondus)
+                accept_res = accept_incoming_trades(page, from_username=None)
                 accepted_trades = accept_res.get("accepted", [])
                 if accepted_trades:
-                    notify(f"[{target_account_name}] 🎉 {len(accepted_trades)} échange(s) validé(s) ! ({total_transferred} cartes ajoutées)", "success")
+                    notify(f"[{target_real_name}] 🎉 {len(accepted_trades)} don(s) validé(s) ! (+{grand_total_transferred} cartes ajoutées)", "success")
                 else:
-                    notify(f"[{target_account_name}] ℹ️ Offres en attente de validation manuelle.", "info")
+                    notify(f"[{target_real_name}] ℹ️ Offres en attente de traitement.", "info")
 
-                # Mettre à jour les stats du compte destinataire
                 engine.extract_collection_stats(page, target_id)
-
+            except Exception as e:
+                notify(f"[{target_real_name}] ⚠️ Erreur lors de l'acceptation : {e}", "warning")
             finally:
-                context.close()
+                if context:
+                    try:
+                        context.close()
+                    except Exception:
+                        pass
+                engine.kill_browser_processes(target_id)
 
-    summary_msg = f"🎉 Transfert terminé : {total_transferred} cartes transférées de {source_name} vers {target_account_name} !"
-    notify(summary_msg, "success")
-    return True, summary_msg
+    if grand_total_transferred > 0:
+        summary_parts = [f"{name}: {cnt}" for name, cnt in accounts_donated]
+        summary_str = ", ".join(summary_parts)
+        summary_msg = f"🎉 Tous les dons sont terminés ! {grand_total_transferred} cartes centralisées sur {target_real_name} [Détail : {summary_str}]."
+        notify(summary_msg, "success")
+        return True, summary_msg
+    else:
+        return False, "Aucune carte n'a pu être donnée (aucune carte correspondante ou erreurs de session)."
+
+def execute_card_transfer(source_account_id, target_account_name, rarities, keep_duplicates_only=False, status_callback=None):
+    """
+    Rétrocompatibilité : effectue un don unique de source_account_id vers target_account_name.
+    """
+    return execute_bulk_donation(
+        source_account_ids=[source_account_id],
+        target_account_name=target_account_name,
+        rarities=rarities,
+        keep_duplicates_only=keep_duplicates_only,
+        status_callback=status_callback
+    )
 

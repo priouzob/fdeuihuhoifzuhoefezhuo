@@ -1139,9 +1139,9 @@ class TransferCardsModal(QDialog):
 
     def __init__(self, initial_source_id=None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("🔄 Transfert de Cartes par Rareté — WikiMasters")
-        self.resize(760, 680)
-        self.setMinimumSize(680, 560)
+        self.setWindowTitle("🎁 Dons & Transferts de Cartes Groupés — WikiMasters")
+        self.resize(780, 720)
+        self.setMinimumSize(700, 600)
         self.setStyleSheet(DARK_STYLE + f"QDialog{{background:{C_BG};}}")
 
         self.accounts = engine.get_accounts()
@@ -1150,24 +1150,28 @@ class TransferCardsModal(QDialog):
 
         self.initial_source_id = initial_source_id or self.accounts[0]["id"]
         self.worker = None
+        self.donator_checks = {}
+        self.donator_labels = {}
 
         self.init_ui()
+        self.rebuild_donators_list()
         self.update_source_account()
+        self.update_mode()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 22, 24, 22)
-        layout.setSpacing(14)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
 
         # ── Header ──
         h_layout = QHBoxLayout()
-        icon = QLabel("🔄")
-        icon.setStyleSheet("font-size: 26px;")
+        icon = QLabel("🎁")
+        icon.setStyleSheet("font-size: 28px;")
         t_col = QVBoxLayout()
         t_col.setSpacing(2)
-        title = QLabel("Transfert de Cartes Automatique")
+        title = QLabel("Dons & Transferts de Cartes")
         title.setStyleSheet("font-size: 17px; font-weight: 800; color: #34d399;")
-        subtitle = QLabel("Transfère des lots de cartes (jusqu'à 100 par échange) selon leur rareté d'un compte à un autre.")
+        subtitle = QLabel("Transférez vos cartes par lots de 100 selon leur rareté. Centralisez TOUS les dons vers un compte en 1 clic !")
         subtitle.setStyleSheet(f"font-size: 11px; color: {C_MUTED};")
         t_col.addWidget(title)
         t_col.addWidget(subtitle)
@@ -1178,11 +1182,106 @@ class TransferCardsModal(QDialog):
 
         layout.addWidget(make_separator())
 
-        # ── Sélection Source & Destination ──
-        acc_frame = QFrame()
-        acc_frame.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 12px; padding: 12px;")
-        acc_layout = QHBoxLayout(acc_frame)
-        acc_layout.setSpacing(16)
+        # ── Sélecteur de Mode ──
+        mode_frame = QFrame()
+        mode_frame.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 10px; padding: 10px 14px;")
+        mode_layout = QHBoxLayout(mode_frame)
+        mode_layout.setSpacing(24)
+
+        self.mode_group = QButtonGroup(self)
+        self.rb_mode_bulk = QRadioButton("🌟 Centraliser TOUS les dons vers un compte unique (Recommandé)")
+        self.rb_mode_bulk.setChecked(True)
+        self.rb_mode_bulk.setStyleSheet("QRadioButton { font-size: 12px; font-weight: 700; color: #34d399; } QRadioButton::indicator { width: 14px; height: 14px; }")
+        self.rb_mode_bulk.toggled.connect(self.update_mode)
+        self.mode_group.addButton(self.rb_mode_bulk)
+
+        self.rb_mode_single = QRadioButton("👤 Don compte par compte (Source ➔ Cible)")
+        self.rb_mode_single.setStyleSheet(f"QRadioButton {{ font-size: 12px; font-weight: 600; color: {C_TEXT}; }} QRadioButton::indicator {{ width: 14px; height: 14px; }}")
+        self.rb_mode_single.toggled.connect(self.update_mode)
+        self.mode_group.addButton(self.rb_mode_single)
+
+        mode_layout.addWidget(self.rb_mode_bulk)
+        mode_layout.addWidget(self.rb_mode_single)
+        mode_layout.addStretch()
+        layout.addWidget(mode_frame)
+
+        # ── Container Mode Groupé (Bulk) ──
+        self.bulk_container = QFrame()
+        self.bulk_container.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 12px; padding: 12px;")
+        bulk_layout = QVBoxLayout(self.bulk_container)
+        bulk_layout.setSpacing(10)
+
+        # Destinataire unique
+        target_row = QHBoxLayout()
+        target_lbl = QLabel("🎯  Compte Destinataire (Receveur unique de tous les dons) :")
+        target_lbl.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT};")
+        target_row.addWidget(target_lbl)
+        target_row.addStretch()
+
+        self.cb_target_bulk = QComboBox()
+        self.cb_target_bulk.setStyleSheet(f"QComboBox {{ background: {C_CARD}; border: 1px solid #10b981; border-radius: 8px; padding: 6px 14px; color: {C_TEXT}; font-weight: 700; font-size: 12px; min-width: 220px; }}")
+        for a in self.accounts:
+            self.cb_target_bulk.addItem(f"👤 {a.get('name', a['id'])}", a["id"])
+        self.cb_target_bulk.currentIndexChanged.connect(self.on_bulk_target_changed)
+        target_row.addWidget(self.cb_target_bulk)
+        bulk_layout.addLayout(target_row)
+
+        bulk_layout.addWidget(make_separator())
+
+        # En-tête des donateurs
+        donators_header = QHBoxLayout()
+        donators_title = QLabel("👥  Comptes donateurs participants :")
+        donators_title.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT};")
+        donators_header.addWidget(donators_title)
+        donators_header.addStretch()
+
+        btn_chk_all = QPushButton("Tout cocher")
+        btn_chk_all.setStyleSheet(f"font-size: 10px; padding: 3px 8px; border-radius: 5px;")
+        btn_chk_all.clicked.connect(lambda: self.select_all_donators(True))
+
+        btn_chk_none = QPushButton("Tout décocher")
+        btn_chk_none.setStyleSheet(f"font-size: 10px; padding: 3px 8px; border-radius: 5px;")
+        btn_chk_none.clicked.connect(lambda: self.select_all_donators(False))
+
+        donators_header.addWidget(btn_chk_all)
+        donators_header.addWidget(btn_chk_none)
+        bulk_layout.addLayout(donators_header)
+
+        # Liste scrollable des comptes donateurs
+        self.donators_scroll = QScrollArea()
+        self.donators_scroll.setWidgetResizable(True)
+        self.donators_scroll.setFixedHeight(120)
+        self.donators_scroll.setStyleSheet(f"""
+            QScrollArea {{
+                background: {C_CARD};
+                border: 1px solid {C_BORDER2};
+                border-radius: 8px;
+            }}
+            QScrollBar:vertical {{
+                background: {C_CARD};
+                width: 8px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {C_BORDER2};
+                border-radius: 4px;
+            }}
+        """)
+        self.donators_widget = QWidget()
+        self.donators_widget.setObjectName("donatorsWidget")
+        self.donators_widget.setStyleSheet(f"background: {C_CARD};")
+        self.donators_layout = QVBoxLayout(self.donators_widget)
+        self.donators_layout.setContentsMargins(8, 8, 8, 8)
+        self.donators_layout.setSpacing(6)
+        self.donators_scroll.setWidget(self.donators_widget)
+        bulk_layout.addWidget(self.donators_scroll)
+
+        layout.addWidget(self.bulk_container)
+
+        # ── Container Mode Compte par Compte (Single) ──
+        self.single_container = QFrame()
+        self.single_container.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 12px; padding: 12px;")
+        single_layout = QHBoxLayout(self.single_container)
+        single_layout.setSpacing(16)
 
         # Source
         src_col = QVBoxLayout()
@@ -1209,17 +1308,17 @@ class TransferCardsModal(QDialog):
         dst_col.setSpacing(6)
         dst_lbl = QLabel("Compte Destinataire (Receveur) :")
         dst_lbl.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT};")
-        self.cb_target = QComboBox()
-        self.cb_target.setStyleSheet(f"QComboBox {{ background: {C_CARD}; border: 1px solid {C_BORDER2}; border-radius: 8px; padding: 8px 12px; color: {C_TEXT}; font-weight: 600; font-size: 12px; }}")
+        self.cb_target_single = QComboBox()
+        self.cb_target_single.setStyleSheet(f"QComboBox {{ background: {C_CARD}; border: 1px solid {C_BORDER2}; border-radius: 8px; padding: 8px 12px; color: {C_TEXT}; font-weight: 600; font-size: 12px; }}")
         dst_col.addWidget(dst_lbl)
-        dst_col.addWidget(self.cb_target)
+        dst_col.addWidget(self.cb_target_single)
 
-        acc_layout.addLayout(src_col, 1)
-        acc_layout.addWidget(arrow_lbl)
-        acc_layout.addLayout(dst_col, 1)
-        layout.addWidget(acc_frame)
+        single_layout.addLayout(src_col, 1)
+        single_layout.addWidget(arrow_lbl)
+        single_layout.addLayout(dst_col, 1)
+        layout.addWidget(self.single_container)
 
-        # ── Raretés ──
+        # ── Raretés (Commun aux deux modes) ──
         rarity_frame = QFrame()
         rarity_frame.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 12px; padding: 12px;")
         rf_layout = QVBoxLayout(rarity_frame)
@@ -1277,7 +1376,7 @@ class TransferCardsModal(QDialog):
         chk_row.addStretch()
         rf_layout.addLayout(chk_row)
 
-        # Options de mode
+        # Options de conservation
         mode_box = QHBoxLayout()
         mode_box.setSpacing(20)
         self.rb_all = QRadioButton("📦  Tout transférer sans conserver d'exemplaire")
@@ -1287,7 +1386,7 @@ class TransferCardsModal(QDialog):
 
         self.rb_duplicates = QRadioButton("🛡️  Garder 1 exemplaire de chaque carte (Doublons uniquement)")
         self.rb_duplicates.setChecked(False)
-        self.rb_duplicates.setToolTip("Ne transfère que les cartes en plusieurs exemplaires pour préserver la complétion de votre collection.")
+        self.rb_duplicates.setToolTip("Ne transfère que les cartes en plusieurs exemplaires pour préserver la collection.")
         self.rb_duplicates.toggled.connect(self.update_preview)
 
         mode_box.addWidget(self.rb_all)
@@ -1313,7 +1412,7 @@ class TransferCardsModal(QDialog):
 
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setFixedHeight(120)
+        self.log_view.setFixedHeight(110)
         self.log_view.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 8px; color: {C_TEXT}; font-family: Consolas, monospace; font-size: 11px; padding: 6px;")
         layout.addWidget(self.log_view)
 
@@ -1321,9 +1420,27 @@ class TransferCardsModal(QDialog):
         btn_box = QHBoxLayout()
         btn_box.setSpacing(12)
 
-        self.btn_start = QPushButton("🚀  Lancer le transfert")
+        self.btn_start = QPushButton("🎁  Centraliser TOUS les dons")
         self.btn_start.setObjectName("btnPrimary")
-        self.btn_start.setStyleSheet(f"QPushButton {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #047857); border: 1px solid #10b981; color: white; font-size: 13px; font-weight: 800; padding: 9px 20px; border-radius: 8px; }} QPushButton:hover {{ background: #047857; }}")
+        self.btn_start.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #047857);
+                border: 1px solid #10b981;
+                color: white;
+                font-size: 13px;
+                font-weight: 800;
+                padding: 9px 22px;
+                border-radius: 8px;
+            }}
+            QPushButton:hover {{
+                background: #047857;
+            }}
+            QPushButton:disabled {{
+                background: #1f2937;
+                border-color: #374151;
+                color: #6b7280;
+            }}
+        """)
         self.btn_start.clicked.connect(self.start_transfer)
 
         self.btn_close = QPushButton("✕  Fermer")
@@ -1339,26 +1456,139 @@ class TransferCardsModal(QDialog):
             chk.setChecked(code in codes)
         self.update_preview()
 
+    def update_mode(self):
+        is_bulk = self.rb_mode_bulk.isChecked()
+        self.bulk_container.setVisible(is_bulk)
+        self.single_container.setVisible(not is_bulk)
+        self.update_preview()
+
+    def on_bulk_target_changed(self):
+        self.rebuild_donators_list()
+
+    def rebuild_donators_list(self):
+        # Nettoyer l'ancien contenu du layout
+        while self.donators_layout.count():
+            item = self.donators_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+            elif item.layout():
+                while item.layout().count():
+                    sub = item.layout().takeAt(0)
+                    if sub.widget():
+                        sub.widget().deleteLater()
+
+        self.donator_checks.clear()
+        self.donator_labels.clear()
+
+        target_id = self.cb_target_bulk.currentData()
+        has_donators = False
+
+        for a in self.accounts:
+            acc_id = a.get("id")
+            if acc_id == target_id:
+                continue
+            has_donators = True
+            acc_name = a.get("name", acc_id)
+
+            row_widget = QWidget()
+            row_widget.setStyleSheet("background: transparent;")
+            row_h = QHBoxLayout(row_widget)
+            row_h.setContentsMargins(4, 2, 4, 2)
+            row_h.setSpacing(10)
+
+            chk = QCheckBox(f"👤  {acc_name}")
+            chk.setChecked(True)
+            chk.setStyleSheet(f"font-weight: 600; font-size: 12px; color: {C_TEXT};")
+            chk.toggled.connect(self.update_preview)
+
+            lbl_badge = QLabel("Calcul...")
+            lbl_badge.setStyleSheet(f"font-size: 11px; font-weight: 700; color: #38bdf8; background: #0f172a; padding: 2px 8px; border-radius: 6px; border: 1px solid #1e293b;")
+
+            row_h.addWidget(chk)
+            row_h.addStretch()
+            row_h.addWidget(lbl_badge)
+
+            self.donators_layout.addWidget(row_widget)
+            self.donator_checks[acc_id] = chk
+            self.donator_labels[acc_id] = lbl_badge
+
+        if not has_donators:
+            empty_lbl = QLabel("Aucun autre compte disponible pour effectuer des dons.")
+            empty_lbl.setStyleSheet(f"color: {C_MUTED}; font-style: italic; padding: 6px;")
+            self.donators_layout.addWidget(empty_lbl)
+
+        self.donators_layout.addStretch()
+        self.update_preview()
+
+    def select_all_donators(self, checked):
+        for chk in self.donator_checks.values():
+            chk.setChecked(checked)
+        self.update_preview()
+
     def update_source_account(self):
         source_id = self.cb_source.currentData()
-        self.cb_target.clear()
+        self.cb_target_single.clear()
         for a in self.accounts:
             if a["id"] != source_id:
-                self.cb_target.addItem(f"👤 {a.get('name', a['id'])}", a["id"])
+                self.cb_target_single.addItem(f"👤 {a.get('name', a['id'])}", a["id"])
         self.update_preview()
 
     def update_preview(self):
-        source_id = self.cb_source.currentData()
-        stats = engine.get_account_collection_stats(source_id)
         selected_r = [code for code, chk in self.rarity_checks.items() if chk.isChecked()]
-        if not stats or "rarityCounts" not in stats:
-            self.lbl_estimate.setText(f"📊  Raretés sélectionnées : {', '.join(selected_r) if selected_r else 'Aucune'}")
-            return
-        rc = stats.get("rarityCounts", {})
-        total_matching = sum(rc.get(r, 0) for r in selected_r)
-        batches = max(1, (total_matching + 99) // 100) if total_matching > 0 else 0
-        mode_str = " (doublons uniquement)" if self.rb_duplicates.isChecked() else ""
-        self.lbl_estimate.setText(f"📊  {total_matching} cartes correspondantes détectées sur ce compte (~{batches} lot(s) de 100 cartes){mode_str}")
+        keep_dup = self.rb_duplicates.isChecked()
+        mode_str = " (doublons uniquement)" if keep_dup else ""
+
+        if self.rb_mode_bulk.isChecked():
+            target_id = self.cb_target_bulk.currentData()
+            target_acc = next((a for a in self.accounts if a.get("id") == target_id), None)
+            target_name = target_acc.get("name", target_id) if target_acc else str(target_id or "Compte")
+
+            grand_total = 0
+            active_donators = 0
+
+            for acc_id, chk in self.donator_checks.items():
+                stats = engine.get_account_collection_stats(acc_id)
+                count = 0
+                if stats and "rarityCounts" in stats:
+                    rc = stats.get("rarityCounts", {})
+                    count = sum(rc.get(r, 0) for r in selected_r)
+
+                lbl = self.donator_labels.get(acc_id)
+                if lbl:
+                    lbl.setText(f"{count} carte(s)")
+                    lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: " + ("#34d399;" if count > 0 else f"{C_MUTED};") + " background: #0f172a; padding: 2px 8px; border-radius: 6px; border: 1px solid #1e293b;")
+
+                if chk.isChecked():
+                    active_donators += 1
+                    grand_total += count
+
+            batches = max(1, (grand_total + 99) // 100) if grand_total > 0 else 0
+            if active_donators == 0:
+                self.lbl_estimate.setText("⚠️  Aucun compte donateur sélectionné.")
+            else:
+                self.lbl_estimate.setText(f"📊  Total estimé : <b>{grand_total} cartes</b> depuis <b>{active_donators} compte(s)</b> vers <b>{target_name}</b> (~{batches} lot(s) de 100 cartes){mode_str}")
+
+            self.btn_start.setText(f"🎁  Centraliser TOUS les dons vers {target_name}")
+
+        else:
+            source_id = self.cb_source.currentData()
+            source_acc = next((a for a in self.accounts if a.get("id") == source_id), None)
+            source_name = source_acc.get("name", source_id) if source_acc else str(source_id or "Source")
+
+            target_id = self.cb_target_single.currentData()
+            target_acc = next((a for a in self.accounts if a.get("id") == target_id), None)
+            target_name = target_acc.get("name", target_id) if target_acc else str(target_id or "Cible")
+
+            stats = engine.get_account_collection_stats(source_id)
+            total_matching = 0
+            if stats and "rarityCounts" in stats:
+                rc = stats.get("rarityCounts", {})
+                total_matching = sum(rc.get(r, 0) for r in selected_r)
+
+            batches = max(1, (total_matching + 99) // 100) if total_matching > 0 else 0
+            self.lbl_estimate.setText(f"📊  <b>{total_matching} cartes</b> correspondantes sur {source_name} (~{batches} lot(s) de 100 cartes){mode_str}")
+            self.btn_start.setText(f"🚀  Lancer le transfert ({source_name} ➔ {target_name})")
 
     def log(self, text, level="info"):
         color = "#10b981" if level == "success" else "#38bdf8" if level == "info" else "#f59e0b" if level == "warning" else "#ef4444"
@@ -1367,50 +1597,98 @@ class TransferCardsModal(QDialog):
         sb = self.log_view.verticalScrollBar()
         sb.setValue(sb.maximum())
 
+    def set_controls_enabled(self, enabled):
+        self.btn_start.setEnabled(enabled)
+        self.rb_mode_bulk.setEnabled(enabled)
+        self.rb_mode_single.setEnabled(enabled)
+        self.cb_target_bulk.setEnabled(enabled)
+        self.cb_source.setEnabled(enabled)
+        self.cb_target_single.setEnabled(enabled)
+        for chk in self.donator_checks.values():
+            chk.setEnabled(enabled)
+        for chk in self.rarity_checks.values():
+            chk.setEnabled(enabled)
+        self.rb_all.setEnabled(enabled)
+        self.rb_duplicates.setEnabled(enabled)
+
     def start_transfer(self):
-        source_id = self.cb_source.currentData()
-        target_name = self.cb_target.currentText().replace("👤 ", "").strip()
         selected_r = [code for code, chk in self.rarity_checks.items() if chk.isChecked()]
         if not selected_r:
             QMessageBox.warning(self, "Attention", "Veuillez sélectionner au moins une rareté à transférer.")
             return
 
         keep_dup = self.rb_duplicates.isChecked()
-        mode_label = "Doublons uniquement" if keep_dup else "Tous les exemplaires"
+        mode_label = "Doublons uniquement (préserver 1 exemplaire)" if keep_dup else "Tous les exemplaires"
 
-        confirm = QMessageBox.question(
-            self, "Confirmer le transfert",
-            f"Êtes-vous sûr de vouloir transférer les cartes ({', '.join(selected_r)})\n"
-            f"depuis '{self.cb_source.currentText()}' vers '{target_name}' ?\n\n"
-            f"Mode : {mode_label}\n"
-            f"Les lots d'échange seront envoyés et validés automatiquement.",
-            QMessageBox.Yes | QMessageBox.No
-        )
-        if confirm != QMessageBox.Yes:
-            return
+        if self.rb_mode_bulk.isChecked():
+            target_id = self.cb_target_bulk.currentData()
+            target_acc = next((a for a in self.accounts if a.get("id") == target_id), None)
+            target_name = target_acc.get("name", target_id) if target_acc else str(target_id)
 
-        self.btn_start.setEnabled(False)
-        self.cb_source.setEnabled(False)
-        self.cb_target.setEnabled(False)
-        self.progress_bar.setRange(0, 0)
-        self.log(f"🚀 Démarrage du transfert vers {target_name}...", "info")
+            selected_sources = [acc_id for acc_id, chk in self.donator_checks.items() if chk.isChecked()]
+            if not selected_sources:
+                QMessageBox.warning(self, "Attention", "Veuillez cocher au moins un compte donateur participant.")
+                return
 
-        self.worker = TransferWorker(source_id, target_name, selected_r, keep_dup)
-        self.worker.log_signal.connect(self.log)
-        self.worker.finished_signal.connect(self.on_transfer_finished)
-        self.worker.start()
+            confirm = QMessageBox.question(
+                self, "Confirmer la centralisation des dons",
+                f"Êtes-vous sûr de vouloir centraliser TOUS les dons de cartes ({', '.join(selected_r)})\n"
+                f"depuis {len(selected_sources)} compte(s) vers '{target_name}' ?\n\n"
+                f"Mode : {mode_label}\n\n"
+                f"Les échanges seront envoyés par lots de 100 cartes, puis réceptionnés et validés automatiquement sur '{target_name}'.",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if confirm != QMessageBox.Yes:
+                return
+
+            self.set_controls_enabled(False)
+            self.progress_bar.setRange(0, 0)
+            self.log(f"🌟 Lancement du don centralisé : {len(selected_sources)} compte(s) vers {target_name}...", "info")
+
+            self.worker = TransferWorker(selected_sources, target_name, selected_r, keep_dup)
+            self.worker.log_signal.connect(self.log)
+            self.worker.finished_signal.connect(self.on_transfer_finished)
+            self.worker.start()
+
+        else:
+            source_id = self.cb_source.currentData()
+            source_acc = next((a for a in self.accounts if a.get("id") == source_id), None)
+            source_name = source_acc.get("name", source_id) if source_acc else str(source_id)
+
+            target_id = self.cb_target_single.currentData()
+            target_acc = next((a for a in self.accounts if a.get("id") == target_id), None)
+            target_name = target_acc.get("name", target_id) if target_acc else str(target_id)
+
+            confirm = QMessageBox.question(
+                self, "Confirmer le transfert",
+                f"Êtes-vous sûr de vouloir transférer les cartes ({', '.join(selected_r)})\n"
+                f"depuis '{source_name}' vers '{target_name}' ?\n\n"
+                f"Mode : {mode_label}\n\n"
+                f"Les lots d'échange seront envoyés et validés automatiquement.",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if confirm != QMessageBox.Yes:
+                return
+
+            self.set_controls_enabled(False)
+            self.progress_bar.setRange(0, 0)
+            self.log(f"🚀 Démarrage du transfert depuis {source_name} vers {target_name}...", "info")
+
+            self.worker = TransferWorker(source_id, target_name, selected_r, keep_dup)
+            self.worker.log_signal.connect(self.log)
+            self.worker.finished_signal.connect(self.on_transfer_finished)
+            self.worker.start()
 
     def on_transfer_finished(self, ok, msg):
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(100 if ok else 0)
-        self.btn_start.setEnabled(True)
-        self.cb_source.setEnabled(True)
-        self.cb_target.setEnabled(True)
+        self.set_controls_enabled(True)
         self.transfer_completed.emit()
+        self.update_preview()
         if ok:
-            QMessageBox.information(self, "Transfert Réussi", msg)
+            QMessageBox.information(self, "Opération Terminée", msg)
         else:
-            QMessageBox.warning(self, "Transfert Incomplet", msg)
+            QMessageBox.warning(self, "Opération Incomplète", msg)
 
 class AddAccountDialog(QDialog):
     def __init__(self, default_name="Compte", parent=None):
@@ -1648,16 +1926,19 @@ class TransferWorker(QThread):
     log_signal = Signal(str, str)
     finished_signal = Signal(bool, str)
 
-    def __init__(self, source_account_id, target_name, rarities, keep_duplicates_only):
+    def __init__(self, source_account_ids, target_name, rarities, keep_duplicates_only):
         super().__init__()
-        self.source_account_id = source_account_id
+        if isinstance(source_account_ids, list):
+            self.source_account_ids = source_account_ids
+        else:
+            self.source_account_ids = [source_account_ids]
         self.target_name = target_name
         self.rarities = rarities
         self.keep_duplicates_only = keep_duplicates_only
 
     def run(self):
-        ok, msg = engine.transfer_cards(
-            self.source_account_id,
+        ok, msg = engine.transfer_bulk_cards(
+            self.source_account_ids,
             self.target_name,
             self.rarities,
             keep_duplicates_only=self.keep_duplicates_only,
@@ -2477,10 +2758,10 @@ class MainWindow(QMainWindow):
         btn_discord.clicked.connect(self.open_discord_settings)
         hh.addWidget(btn_discord)
 
-        btn_transfer = QPushButton("🔄  Transférer")
+        btn_transfer = QPushButton("🎁  Dons / Transferts")
         btn_transfer.setObjectName("btnSmall")
         btn_transfer.setStyleSheet("QPushButton { background:#064e3b; color:#a7f3d0; border:1px solid #059669; font-weight:700; border-radius:6px; padding:4px 10px; } QPushButton:hover { background:#047857; color:white; }")
-        btn_transfer.setToolTip("Transférer des cartes en lot par rareté entre vos comptes")
+        btn_transfer.setToolTip("Centraliser les dons de cartes vers un compte unique ou transférer par rareté")
         btn_transfer.clicked.connect(lambda: self.open_transfer_modal())
         hh.addWidget(btn_transfer)
 
