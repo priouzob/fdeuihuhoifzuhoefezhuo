@@ -62,6 +62,7 @@ def get_friend_user_id(page, friend_username):
 def get_cards_for_transfer(page, rarities, keep_duplicates_only=False):
     """
     Récupère toutes les cartes de la collection correspondant aux raretés sélectionnées.
+    Tolère la latence du serveur en réessayant les pages lentes (timeouts/504).
     Si keep_duplicates_only=True, ne sélectionne que les exemplaires excédentaires (doublons).
     """
     cards_to_transfer = []
@@ -71,24 +72,35 @@ def get_cards_for_transfer(page, rarities, keep_duplicates_only=False):
         for (const r of raritiesList) {
             let pageNum = 1;
             while (pageNum <= 100) {
-                try {
-                    const res = await fetch(`/api/my-collection?page=${pageNum}&limit=50&rarity=${r}`);
-                    if (!res.ok) break;
-                    const data = await res.json();
-                    if (!data.collection || data.collection.length === 0) break;
-                    for (const item of data.collection) {
-                        results.push({
-                            id: item.id,
-                            card_id: item.card_id,
-                            count: item.count || 1,
-                            title: item.card ? item.card.wikipedia_title : '',
-                            rarity: item.card ? item.card.rarity : r
-                        });
+                let pageData = null;
+                for (let retry = 0; retry < 3; retry++) {
+                    try {
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 16000);
+                        const res = await fetch(`/api/my-collection?page=${pageNum}&limit=50&rarity=${r}`, { signal: controller.signal });
+                        clearTimeout(timeoutId);
+                        if (res.ok) {
+                            pageData = await res.json();
+                            break;
+                        } else if (res.status === 502 || res.status === 503 || res.status === 504 || res.status === 429) {
+                            await new Promise(res => setTimeout(res, 1200 + retry * 1000));
+                            continue;
+                        }
+                    } catch (e) {
+                        await new Promise(res => setTimeout(res, 1000 + retry * 1000));
                     }
-                    if (data.collection.length < 50) break;
-                } catch (e) {
-                    break;
                 }
+                if (!pageData || !pageData.collection || pageData.collection.length === 0) break;
+                for (const item of pageData.collection) {
+                    results.push({
+                        id: item.id,
+                        card_id: item.card_id,
+                        count: item.count || 1,
+                        title: item.card ? item.card.wikipedia_title : '',
+                        rarity: item.card ? item.card.rarity : r
+                    });
+                }
+                if (pageData.collection.length < 50) break;
                 pageNum++;
             }
         }
@@ -100,13 +112,11 @@ def get_cards_for_transfer(page, rarities, keep_duplicates_only=False):
         return []
 
     if keep_duplicates_only:
-        # Conserver 1 exemplaire par card_id
         seen_card_ids = {}
         for c in raw_cards:
             cid = c["card_id"]
             cnt = c.get("count", 1)
             if cnt > 1:
-                # La carte indique elle-même posséder plusieurs exemplaires
                 cards_to_transfer.append(c)
             else:
                 if cid not in seen_card_ids:
@@ -119,7 +129,7 @@ def get_cards_for_transfer(page, rarities, keep_duplicates_only=False):
     return cards_to_transfer
 
 def send_trade_offer(page, recipient_id, my_id, cards_batch):
-    """Envoie une offre d'échange contenant jusqu'à 100 cartes."""
+    """Envoie une offre d'échange contenant jusqu'à 100 cartes avec tolérance à la latence du serveur."""
     payload = {
         "recipient_id": recipient_id,
         "items": [
@@ -135,59 +145,114 @@ def send_trade_offer(page, recipient_id, my_id, cards_batch):
     }
 
     res = page.evaluate("""async (payload) => {
-        try {
-            const r = await fetch('/api/trades', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-wiki-calendar-tz': 'Europe/Paris'
-                },
-                body: JSON.stringify(payload)
-            });
-            const data = await r.json().catch(() => ({}));
-            return { ok: r.ok, status: r.status, data };
-        } catch (e) {
-            return { ok: false, error: e.message };
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000);
+                const r = await fetch('/api/trades', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-wiki-calendar-tz': 'Europe/Paris'
+                    },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                const data = await r.json().catch(() => ({}));
+                if (r.ok) {
+                    return { ok: true, status: r.status, data };
+                }
+                // Tolérance 502/504 : vérifier si l'échange est bien passé malgré le timeout de passerelle
+                if (r.status === 502 || r.status === 504 || r.status === 500) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    try {
+                        const checkRes = await fetch('/api/trades?active=1');
+                        if (checkRes.ok) {
+                            const checkData = await checkRes.json();
+                            const activeTrades = checkData.trades || [];
+                            const alreadyCreated = activeTrades.some(t =>
+                                t.recipient_id === payload.recipient_id &&
+                                (t.items || []).length === payload.items.length
+                            );
+                            if (alreadyCreated) {
+                                return { ok: true, status: 200, recovered: true };
+                            }
+                        }
+                    } catch(e) {}
+                    await new Promise(resolve => setTimeout(resolve, 1500 + attempt * 1200));
+                    continue;
+                }
+                return { ok: false, status: r.status, data, error: data.error || `Erreur serveur (${r.status})` };
+            } catch (e) {
+                if (attempt === 2) return { ok: false, error: 'Délai d\\'attente dépassé (latence serveur)' };
+                await new Promise(resolve => setTimeout(resolve, 1500 + attempt * 1200));
+            }
         }
+        return { ok: false, error: 'Échec après 3 tentatives (latence serveur)' };
     }""", payload)
     return res
 
 def accept_incoming_trades(page, from_username=None):
     """
-    Vérifie et accepte tous les échanges actifs reçus (optionnellement filtrés par from_username).
+    Vérifie et accepte tous les échanges actifs reçus (optionnellement filtrés par from_username)
+    avec temporisation entre les lots pour soulager la base de données de WikiMasters.
     """
     res = page.evaluate("""async (filterUsername) => {
         try {
-            const r = await fetch('/api/trades?active=1');
-            if (!r.ok) return { ok: false, error: 'Impossible de lire les échanges' };
-            const data = await r.json();
+            let data = null;
+            for (let retry = 0; retry < 3; retry++) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 16000);
+                    const r = await fetch('/api/trades?active=1', { signal: controller.signal });
+                    clearTimeout(timeoutId);
+                    if (r.ok) { data = await r.json(); break; }
+                } catch(e) {}
+                await new Promise(r => setTimeout(r, 1400));
+            }
+            if (!data) return { ok: false, error: 'Impossible de lire les échanges (latence serveur)' };
+
             const trades = data.trades || [];
             const accepted = [];
 
             for (const t of trades) {
-                // Vérifier si l'échange est reçu
                 const initiatorName = t.initiator ? t.initiator.username : '';
                 if (filterUsername && initiatorName.toLowerCase() !== filterUsername.toLowerCase()) {
                     continue;
                 }
 
-                // Accepter l'échange
-                const patchRes = await fetch(`/api/trades/${t.id}`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-wiki-calendar-tz': 'Europe/Paris'
-                    },
-                    body: JSON.stringify({ action: 'accept' })
-                });
+                // Accepter l'échange avec tentative de récupération sur latence
+                let patchSuccess = false;
+                for (let patchAttempt = 0; patchAttempt < 3; patchAttempt++) {
+                    try {
+                        const patchRes = await fetch(`/api/trades/${t.id}`, {
+                            method: 'PATCH',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'x-wiki-calendar-tz': 'Europe/Paris'
+                            },
+                            body: JSON.stringify({ action: 'accept' })
+                        });
 
-                if (patchRes.ok) {
-                    accepted.push({
-                        id: t.id,
-                        initiator: initiatorName,
-                        cards_count: (t.items || []).length
-                    });
+                        if (patchRes.ok) {
+                            patchSuccess = true;
+                            accepted.push({
+                                id: t.id,
+                                initiator: initiatorName,
+                                cards_count: (t.items || []).length
+                            });
+                            break;
+                        } else if (patchRes.status === 502 || patchRes.status === 504 || patchRes.status === 429) {
+                            await new Promise(r => setTimeout(r, 1800));
+                            continue;
+                        }
+                    } catch(e) {}
+                    await new Promise(r => setTimeout(r, 1400));
                 }
+
+                // Pause raisonnable pour éviter d'engorger la base de données sur les gros transferts
+                await new Promise(r => setTimeout(r, 1000));
             }
             return { ok: true, accepted };
         } catch (e) {

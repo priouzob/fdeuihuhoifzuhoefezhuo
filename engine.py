@@ -123,13 +123,26 @@ def get_account_collection_stats(account_id):
     return stats.get(account_id, None)
 
 def extract_collection_stats(page, account_id):
-    """Extrait en temps réel via l'API interne le total et la répartition des raretés de cartes."""
+    """Extrait en temps réel via l'API interne le total et la répartition des raretés de cartes avec tolérance à la latence."""
     try:
         data = page.evaluate("""async () => {
-            try {
-                const res = await fetch('/api/my-collection/stats?sort=rarity');
-                if (res.ok) return await res.json();
-            } catch(e) {}
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 14000);
+                    const res = await fetch('/api/my-collection/stats?sort=rarity', { signal: controller.signal });
+                    clearTimeout(timeoutId);
+                    if (res.ok) {
+                        const json = await res.json();
+                        if (json && typeof json === 'object') return json;
+                    } else if (res.status === 502 || res.status === 503 || res.status === 504 || res.status === 429) {
+                        await new Promise(r => setTimeout(r, 1200 + attempt * 800));
+                        continue;
+                    }
+                } catch(e) {
+                    await new Promise(r => setTimeout(r, 1000 + attempt * 800));
+                }
+            }
             return null;
         }""")
         if data and "total" in data:
@@ -1507,31 +1520,46 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                         safe_notify(status_callback, f"[{name}] 📦 Ouverture du paquet #{current_pack_num} (Stock: {stock})...", "stealth")
 
                         # Clic d'ouverture
-                        human_delay(0.2, 0.5)
+                        human_delay(0.15, 0.35)
                         ouvrir_btn.click()
 
-                        # Attente EXPLICITE de la fin de l'animation de déchirure du paquet (3 secondes sur WikiMasters)
-                        try:
-                            page.wait_for_selector(
-                                "button.w-12.h-12:not([disabled]), button:has-text('Continuer'), button:has-text('Encore'), text=/Carte\\s*1\\s*\\/\\s*5/i",
-                                timeout=12000
-                            )
-                        except Exception:
-                            time.sleep(3.2)
+                        # Attente ADAPTATIVE & TOLÉRANTE À LA LATENCE SERVEUR
+                        # Le serveur WikiMasters peut mettre entre 500ms et 15s pour valider le tirage et envoyer les cartes.
+                        pack_opened = False
+                        open_wait_start = time.time()
+                        while time.time() - open_wait_start < 20.0:
+                            # Détecter et résoudre immédiatement une éventuelle pop-up de vérification interne
+                            if check_and_handle_verification_modal(page, status_callback):
+                                time.sleep(0.5)
+                                o_retry = page.locator("button:has-text('Ouvrir'):not([disabled])").first
+                                if o_retry.count() > 0 and o_retry.is_visible() and o_retry.is_enabled():
+                                    o_retry.click()
 
-                        # Si la modale 'Vérification rapide' s'est déclenchée au clic
-                        if check_and_handle_verification_modal(page, status_callback):
-                            time.sleep(1.0)
-                            ouvrir_retry = page.locator("button:has-text('Ouvrir'):not([disabled])").first
-                            if ouvrir_retry.count() > 0 and ouvrir_retry.is_visible() and ouvrir_retry.is_enabled():
-                                ouvrir_retry.click()
-                                try:
-                                    page.wait_for_selector(
-                                        "button.w-12.h-12:not([disabled]), button:has-text('Continuer'), button:has-text('Encore')",
-                                        timeout=10000
-                                    )
-                                except Exception:
-                                    time.sleep(3.0)
+                            # Vérifier si les cartes ou la flèche de navigation sont apparues
+                            has_pack_ui = page.locator(
+                                "button.w-12.h-12:not([disabled]), button:has-text('Continuer'), text=/Carte\\s*1\\s*\\/\\s*5/i"
+                            ).count() > 0
+
+                            if has_pack_ui:
+                                # Vérifier si le titre de la 1ère carte est lisible
+                                card_t, _ = extract_current_card_details(page)
+                                if card_t:
+                                    pack_opened = True
+                                    break
+
+                            # Détecter si le serveur affiche un toast d'erreur / surcharge
+                            err_toast = page.locator("div[role='status'], div[class*='toast'], div[class*='alert']").first
+                            if err_toast.count() > 0 and err_toast.is_visible():
+                                txt_err = err_toast.inner_text().strip()
+                                if any(w in txt_err.lower() for w in ["erreur", "patienter", "surchargé", "indisponible", "retry"]):
+                                    safe_notify(status_callback, f"[{name}] ⏳ Latence serveur détectée ({txt_err}). Nouvelle tentative...", "warning")
+                                    time.sleep(2.0)
+                                    o_retry = page.locator("button:has-text('Ouvrir'):not([disabled])").first
+                                    if o_retry.count() > 0 and o_retry.is_visible() and o_retry.is_enabled():
+                                        o_retry.click()
+                                        open_wait_start = time.time()
+
+                            time.sleep(0.1)
 
                         total_packs_opened += 1
 
@@ -1539,14 +1567,16 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                         pack_rarities = []
                         pack_card_objects = []
 
-                        # Révélation précise des 5 cartes du paquet
+                        # Révélation précise et ultra-rapide des 5 cartes du paquet
                         for card_idx in range(5):
-                            time.sleep(0.4)
-
-                            card_title, card_rarity = extract_current_card_details(page)
-                            if not card_title:
-                                time.sleep(0.3)
+                            # Attente dynamique de la présence des informations de la carte
+                            card_title, card_rarity = "", "C"
+                            card_resolve_start = time.time()
+                            while time.time() - card_resolve_start < 4.0:
                                 card_title, card_rarity = extract_current_card_details(page)
+                                if card_title:
+                                    break
+                                time.sleep(0.06)
 
                             if not card_title:
                                 card_title = f"Carte #{card_idx + 1}"
@@ -1574,14 +1604,29 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
 
                             # Navigation vers la carte suivante via la flèche droite pour cartes 1 à 4
                             if card_idx < 4:
+                                previous_title = card_title
                                 arrow_next = page.locator("button.w-12.h-12:not([disabled]), button:has(polyline[points*='15 12 9 6']):not([disabled])")
                                 if arrow_next.count() > 0:
                                     arrow_next.last.click()
-                                else:
-                                    time.sleep(0.3)
+
+                                # Attente dynamique que le DOM passe à la carte suivante (50ms si rapide, tolère jusqu'à 3.5s si latence)
+                                adv_start = time.time()
+                                while time.time() - adv_start < 3.5:
+                                    new_title, _ = extract_current_card_details(page)
+                                    has_advanced = (new_title and new_title != previous_title)
+                                    if not has_advanced:
+                                        counter_match = page.locator(f"text=/Carte\\s*{card_idx+2}\\s*\\/\\s*5/i").count() > 0
+                                        if counter_match:
+                                            has_advanced = True
+                                    if has_advanced:
+                                        break
+                                    # Si après 1.2s le clic n'a pas été enregistré à cause de la latence, re-cliquer
+                                    if time.time() - adv_start > 1.2 and arrow_next.count() > 0:
+                                        arrow_next.last.click()
+                                        adv_start = time.time()
+                                    time.sleep(0.05)
 
                         # Validation finale du paquet par 'Continuer' sur la carte 5
-                        time.sleep(0.4)
                         continuer_btn = page.locator("button:has-text('Continuer'):not([disabled]), button.px-8.py-3:not([disabled])").first
                         if continuer_btn.count() > 0 and continuer_btn.is_visible():
                             continuer_btn.click()
@@ -1591,11 +1636,20 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                                     cb.click()
                                     break
 
-                        # Attendre que la modale de paquet se ferme complètement
-                        try:
-                            page.wait_for_selector("button:has-text('Ouvrir'), *:has-text('Prochain dans')", timeout=8000)
-                        except Exception:
-                            time.sleep(1.0)
+                        # Attente dynamique de la fermeture de la modale de paquet (fermeture confirmée côté serveur)
+                        close_start = time.time()
+                        while time.time() - close_start < 10.0:
+                            if time.time() - close_start > 2.5:
+                                c_check = page.locator("button:has-text('Continuer'):not([disabled])").first
+                                if c_check.count() > 0 and c_check.is_visible():
+                                    c_check.click()
+                                    close_start = time.time()
+
+                            is_closed = page.locator("button:has-text('Ouvrir'), *:has-text('Prochain dans'), *:has-text('paquets disponibles')").count() > 0
+                            modal_open = page.locator("text=/Carte\\s*5\\s*\\/\\s*5/i, button:has-text('Continuer')").count() > 0
+                            if is_closed and not modal_open:
+                                break
+                            time.sleep(0.08)
 
                         check_and_handle_verification_modal(page, status_callback)
 

@@ -16,17 +16,27 @@ def get_tz_header():
 
 def get_account_guild_info(page):
     """
-    Récupère les informations complètes de la guilde pour le compte actuellement ouvert.
+    Récupère les informations complètes de la guilde pour le compte actuellement ouvert avec tolérance à la latence.
     """
     try:
         data = page.evaluate("""async () => {
-            try {
-                const res = await fetch('/api/guilds');
-                if (res.ok) return await res.json();
-                return { error_status: res.status };
-            } catch(e) {
-                return { error: e.message };
+            for (let retry = 0; retry < 3; retry++) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 14000);
+                    const res = await fetch('/api/guilds', { signal: controller.signal });
+                    clearTimeout(timeoutId);
+                    if (res.ok) return await res.json();
+                    if (res.status === 502 || res.status === 503 || res.status === 504 || res.status === 429) {
+                        await new Promise(r => setTimeout(r, 1200 + retry * 800));
+                        continue;
+                    }
+                    return { error_status: res.status };
+                } catch(e) {
+                    await new Promise(r => setTimeout(r, 1000 + retry * 800));
+                }
             }
+            return { error: 'Latence serveur' };
         }""")
         if not data or not isinstance(data, dict):
             return {"in_guild": False}
@@ -140,59 +150,97 @@ def resolve_user_id_for_username(page, target_username):
     return None
 
 def invite_to_guild(page, user_id):
-    """Envoie une invitation de guilde à un utilisateur."""
+    """Envoie une invitation de guilde à un utilisateur avec tolérance à la latence."""
     try:
         res = page.evaluate("""async (uid) => {
-            try {
-                const r = await fetch('/api/guilds/invite', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ user_id: uid })
-                });
-                if (r.ok) return { ok: true };
-                const err = await r.json();
-                return { ok: false, error: err.error || 'Erreur inconnue' };
-            } catch(e) {
-                return { ok: false, error: e.message };
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 16000);
+                    const r = await fetch('/api/guilds/invite', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ user_id: uid }),
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeoutId);
+                    if (r.ok) return { ok: true };
+                    const err = await r.json().catch(() => ({}));
+                    if (r.status === 502 || r.status === 504 || r.status === 429) {
+                        await new Promise(res => setTimeout(res, 1500 + attempt * 1000));
+                        continue;
+                    }
+                    if (err.error && (err.error.includes('déjà') || err.error.includes('already') || err.error.includes('member'))) {
+                        return { ok: true, note: err.error };
+                    }
+                    return { ok: false, error: err.error || 'Erreur inconnue' };
+                } catch(e) {
+                    await new Promise(res => setTimeout(res, 1200 + attempt * 1000));
+                }
             }
+            return { ok: false, error: 'Échec après 3 tentatives (latence serveur)' };
         }""", user_id)
         return res
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 def join_guild(page, guild_id):
-    """Rejoint la guilde spécifiée."""
+    """Rejoint la guilde spécifiée avec tolérance à la latence."""
     try:
         res = page.evaluate("""async (gid) => {
-            try {
-                const r = await fetch('/api/guilds/join', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ guild_id: gid })
-                });
-                if (r.ok) return { ok: true };
-                const err = await r.json();
-                return { ok: false, error: err.error || 'Erreur inconnue' };
-            } catch(e) {
-                return { ok: false, error: e.message };
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 16000);
+                    const r = await fetch('/api/guilds/join', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ guild_id: gid }),
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeoutId);
+                    if (r.ok) return { ok: true };
+                    const err = await r.json().catch(() => ({}));
+                    if (r.status === 502 || r.status === 504 || r.status === 429) {
+                        await new Promise(res => setTimeout(res, 1500 + attempt * 1000));
+                        continue;
+                    }
+                    if (err.error && (err.error.includes('déjà') || err.error.includes('already') || err.error.includes('member'))) {
+                        return { ok: true, note: err.error };
+                    }
+                    return { ok: false, error: err.error || 'Erreur inconnue' };
+                } catch(e) {
+                    await new Promise(res => setTimeout(res, 1200 + attempt * 1000));
+                }
             }
+            return { ok: false, error: 'Échec après 3 tentatives (latence serveur)' };
         }""", guild_id)
         return res
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 def leave_guild(page):
-    """Quitte la guilde actuelle."""
+    """Quitte la guilde actuelle avec tolérance à la latence."""
     try:
         res = page.evaluate("""async () => {
-            try {
-                const r = await fetch('/api/guilds/leave', { method: 'POST' });
-                if (r.ok) return { ok: true };
-                const err = await r.json();
-                return { ok: false, error: err.error || 'Erreur inconnue' };
-            } catch(e) {
-                return { ok: false, error: e.message };
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 14000);
+                    const r = await fetch('/api/guilds/leave', { method: 'POST', signal: controller.signal });
+                    clearTimeout(timeoutId);
+                    if (r.ok) return { ok: true };
+                    const err = await r.json().catch(() => ({}));
+                    if (r.status === 502 || r.status === 504 || r.status === 429) {
+                        await new Promise(res => setTimeout(res, 1500));
+                        continue;
+                    }
+                    return { ok: false, error: err.error || 'Erreur inconnue' };
+                } catch(e) {
+                    await new Promise(res => setTimeout(res, 1200));
+                }
             }
+            return { ok: false, error: 'Échec après 3 tentatives (latence serveur)' };
         }""")
         return res
     except Exception as e:

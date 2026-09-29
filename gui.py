@@ -2296,7 +2296,9 @@ class BackgroundClaimWorker(QThread):
     def run(self):
         import concurrent.futures
 
-        def run_single(acc_id):
+        def run_single(acc_id, delay_start=0.0):
+            if delay_start > 0:
+                time.sleep(delay_start)
             self.account_started_signal.emit(acc_id)
             try:
                 res = engine.claim_account(
@@ -2317,7 +2319,8 @@ class BackgroundClaimWorker(QThread):
 
         workers = min(len(self.account_ids), self.max_concurrency) if self.account_ids else 1
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = [executor.submit(run_single, aid) for aid in self.account_ids]
+            # Décalage léger (0.35s) pour paralléliser tous les comptes sans saturer le serveur WikiMasters
+            futures = [executor.submit(run_single, aid, idx * 0.35) for idx, aid in enumerate(self.account_ids)]
             concurrent.futures.wait(futures)
 
         self.cycle_finished_signal.emit()
