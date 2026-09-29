@@ -1140,9 +1140,68 @@ class TransferCardsModal(QDialog):
     def __init__(self, initial_source_id=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("🎁 Dons & Transferts de Cartes Groupés — WikiMasters")
-        self.resize(780, 720)
-        self.setMinimumSize(700, 600)
-        self.setStyleSheet(DARK_STYLE + f"QDialog{{background:{C_BG};}}")
+        self.resize(880, 760)
+        self.setMinimumSize(780, 620)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint | Qt.WindowMinimizeButtonHint)
+
+        # Scoped stylesheet to prevent CSS rules from bleeding onto child widgets
+        self.setStyleSheet(DARK_STYLE + f"""
+            QDialog {{
+                background: {C_BG};
+            }}
+            QFrame#modeFrame, QFrame#bulkContainer, QFrame#singleContainer, QFrame#rarityFrame {{
+                background: {C_SURFACE};
+                border: 1px solid {C_BORDER};
+                border-radius: 12px;
+            }}
+            #modeFrame QLabel, #bulkContainer QLabel, #singleContainer QLabel, #rarityFrame QLabel {{
+                background: transparent;
+                border: none;
+                padding: 0px;
+            }}
+            QRadioButton {{
+                background: transparent;
+                border: none;
+                padding: 3px 6px;
+                color: {C_TEXT};
+                font-size: 12px;
+                spacing: 8px;
+            }}
+            QRadioButton::indicator {{
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                border: 1px solid {C_BORDER2};
+                background-color: {C_CARD};
+            }}
+            QRadioButton::indicator:checked {{
+                background-color: {C_ACCENT};
+                border-color: {C_ACCENT2};
+            }}
+            QRadioButton::indicator:hover {{
+                border-color: {C_ACCENT};
+            }}
+            QCheckBox {{
+                background: transparent;
+                border: none;
+                padding: 3px 6px;
+                spacing: 8px;
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border-radius: 4px;
+                border: 1px solid {C_BORDER2};
+                background-color: {C_CARD};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {C_ACCENT};
+                border-color: {C_ACCENT2};
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: {C_ACCENT};
+            }}
+        """)
 
         self.accounts = engine.get_accounts()
         if not self.accounts:
@@ -1166,13 +1225,13 @@ class TransferCardsModal(QDialog):
         # ── Header ──
         h_layout = QHBoxLayout()
         icon = QLabel("🎁")
-        icon.setStyleSheet("font-size: 28px;")
+        icon.setStyleSheet("font-size: 28px; background: transparent; border: none;")
         t_col = QVBoxLayout()
         t_col.setSpacing(2)
         title = QLabel("Dons & Transferts de Cartes")
-        title.setStyleSheet("font-size: 17px; font-weight: 800; color: #34d399;")
+        title.setStyleSheet("font-size: 18px; font-weight: 800; color: #34d399; background: transparent; border: none;")
         subtitle = QLabel("Transférez vos cartes par lots de 100 selon leur rareté. Centralisez TOUS les dons vers un compte en 1 clic !")
-        subtitle.setStyleSheet(f"font-size: 11px; color: {C_MUTED};")
+        subtitle.setStyleSheet(f"font-size: 11px; color: {C_MUTED}; background: transparent; border: none;")
         t_col.addWidget(title)
         t_col.addWidget(subtitle)
         h_layout.addWidget(icon)
@@ -1184,19 +1243,20 @@ class TransferCardsModal(QDialog):
 
         # ── Sélecteur de Mode ──
         mode_frame = QFrame()
-        mode_frame.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 10px; padding: 10px 14px;")
+        mode_frame.setObjectName("modeFrame")
         mode_layout = QHBoxLayout(mode_frame)
+        mode_layout.setContentsMargins(16, 10, 16, 10)
         mode_layout.setSpacing(24)
 
         self.mode_group = QButtonGroup(self)
         self.rb_mode_bulk = QRadioButton("🌟 Centraliser TOUS les dons vers un compte unique (Recommandé)")
         self.rb_mode_bulk.setChecked(True)
-        self.rb_mode_bulk.setStyleSheet("QRadioButton { font-size: 12px; font-weight: 700; color: #34d399; } QRadioButton::indicator { width: 14px; height: 14px; }")
+        self.rb_mode_bulk.setStyleSheet("font-size: 12px; font-weight: 700; color: #34d399;")
         self.rb_mode_bulk.toggled.connect(self.update_mode)
         self.mode_group.addButton(self.rb_mode_bulk)
 
         self.rb_mode_single = QRadioButton("👤 Don compte par compte (Source ➔ Cible)")
-        self.rb_mode_single.setStyleSheet(f"QRadioButton {{ font-size: 12px; font-weight: 600; color: {C_TEXT}; }} QRadioButton::indicator {{ width: 14px; height: 14px; }}")
+        self.rb_mode_single.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {C_TEXT};")
         self.rb_mode_single.toggled.connect(self.update_mode)
         self.mode_group.addButton(self.rb_mode_single)
 
@@ -1207,14 +1267,15 @@ class TransferCardsModal(QDialog):
 
         # ── Container Mode Groupé (Bulk) ──
         self.bulk_container = QFrame()
-        self.bulk_container.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 12px; padding: 12px;")
+        self.bulk_container.setObjectName("bulkContainer")
         bulk_layout = QVBoxLayout(self.bulk_container)
+        bulk_layout.setContentsMargins(16, 12, 16, 12)
         bulk_layout.setSpacing(10)
 
         # Destinataire unique
         target_row = QHBoxLayout()
         target_lbl = QLabel("🎯  Compte Destinataire (Receveur unique de tous les dons) :")
-        target_lbl.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT};")
+        target_lbl.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT}; background: transparent; border: none;")
         target_row.addWidget(target_lbl)
         target_row.addStretch()
 
@@ -1231,26 +1292,50 @@ class TransferCardsModal(QDialog):
         # En-tête des donateurs
         donators_header = QHBoxLayout()
         donators_title = QLabel("👥  Comptes donateurs participants :")
-        donators_title.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT};")
+        donators_title.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT}; background: transparent; border: none;")
         donators_header.addWidget(donators_title)
         donators_header.addStretch()
 
+        btn_mini_style = f"""
+            QPushButton {{
+                background: #1e293b;
+                color: #94a3b8;
+                border: 1px solid {C_BORDER2};
+                border-radius: 6px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background: #334155;
+                color: #f1f5f9;
+                border-color: {C_ACCENT};
+            }}
+        """
+
         btn_chk_all = QPushButton("Tout cocher")
-        btn_chk_all.setStyleSheet(f"font-size: 10px; padding: 3px 8px; border-radius: 5px;")
+        btn_chk_all.setStyleSheet(btn_mini_style)
         btn_chk_all.clicked.connect(lambda: self.select_all_donators(True))
 
+        btn_chk_cards = QPushButton("Avec cartes (>0)")
+        btn_chk_cards.setToolTip("Cocher uniquement les comptes ayant des cartes des raretés sélectionnées")
+        btn_chk_cards.setStyleSheet(btn_mini_style)
+        btn_chk_cards.clicked.connect(self.select_donators_with_cards)
+
         btn_chk_none = QPushButton("Tout décocher")
-        btn_chk_none.setStyleSheet(f"font-size: 10px; padding: 3px 8px; border-radius: 5px;")
+        btn_chk_none.setStyleSheet(btn_mini_style)
         btn_chk_none.clicked.connect(lambda: self.select_all_donators(False))
 
         donators_header.addWidget(btn_chk_all)
+        donators_header.addWidget(btn_chk_cards)
         donators_header.addWidget(btn_chk_none)
         bulk_layout.addLayout(donators_header)
 
         # Liste scrollable des comptes donateurs
         self.donators_scroll = QScrollArea()
         self.donators_scroll.setWidgetResizable(True)
-        self.donators_scroll.setFixedHeight(120)
+        self.donators_scroll.setMinimumHeight(160)
+        self.donators_scroll.setMaximumHeight(260)
         self.donators_scroll.setStyleSheet(f"""
             QScrollArea {{
                 background: {C_CARD};
@@ -1260,10 +1345,14 @@ class TransferCardsModal(QDialog):
             QScrollBar:vertical {{
                 background: {C_CARD};
                 width: 8px;
+                border-radius: 4px;
             }}
             QScrollBar::handle:vertical {{
                 background: {C_BORDER2};
                 border-radius: 4px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {C_ACCENT};
             }}
         """)
         self.donators_widget = QWidget()
@@ -1279,15 +1368,16 @@ class TransferCardsModal(QDialog):
 
         # ── Container Mode Compte par Compte (Single) ──
         self.single_container = QFrame()
-        self.single_container.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 12px; padding: 12px;")
+        self.single_container.setObjectName("singleContainer")
         single_layout = QHBoxLayout(self.single_container)
+        single_layout.setContentsMargins(16, 14, 16, 14)
         single_layout.setSpacing(16)
 
         # Source
         src_col = QVBoxLayout()
         src_col.setSpacing(6)
         src_lbl = QLabel("Compte Source (Envoyeur) :")
-        src_lbl.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT};")
+        src_lbl.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT}; background: transparent; border: none;")
         self.cb_source = QComboBox()
         self.cb_source.setStyleSheet(f"QComboBox {{ background: {C_CARD}; border: 1px solid {C_BORDER2}; border-radius: 8px; padding: 8px 12px; color: {C_TEXT}; font-weight: 600; font-size: 12px; }}")
         for a in self.accounts:
@@ -1301,13 +1391,13 @@ class TransferCardsModal(QDialog):
         src_col.addWidget(self.cb_source)
 
         arrow_lbl = QLabel("➡️")
-        arrow_lbl.setStyleSheet("font-size: 22px; margin-top: 14px;")
+        arrow_lbl.setStyleSheet("font-size: 22px; margin-top: 14px; background: transparent; border: none;")
 
         # Destination
         dst_col = QVBoxLayout()
         dst_col.setSpacing(6)
         dst_lbl = QLabel("Compte Destinataire (Receveur) :")
-        dst_lbl.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT};")
+        dst_lbl.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT}; background: transparent; border: none;")
         self.cb_target_single = QComboBox()
         self.cb_target_single.setStyleSheet(f"QComboBox {{ background: {C_CARD}; border: 1px solid {C_BORDER2}; border-radius: 8px; padding: 8px 12px; color: {C_TEXT}; font-weight: 600; font-size: 12px; }}")
         dst_col.addWidget(dst_lbl)
@@ -1320,31 +1410,32 @@ class TransferCardsModal(QDialog):
 
         # ── Raretés (Commun aux deux modes) ──
         rarity_frame = QFrame()
-        rarity_frame.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 12px; padding: 12px;")
+        rarity_frame.setObjectName("rarityFrame")
         rf_layout = QVBoxLayout(rarity_frame)
+        rf_layout.setContentsMargins(16, 12, 16, 12)
         rf_layout.setSpacing(10)
 
         rf_title_row = QHBoxLayout()
         rf_title = QLabel("Raretés à transférer :")
-        rf_title.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT};")
+        rf_title.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT}; background: transparent; border: none;")
         rf_title_row.addWidget(rf_title)
         rf_title_row.addStretch()
 
         # Boutons filtres rapides
         btn_c_only = QPushButton("Communes (C)")
-        btn_c_only.setStyleSheet(f"font-size: 10px; padding: 3px 8px; border-radius: 5px;")
+        btn_c_only.setStyleSheet(btn_mini_style)
         btn_c_only.clicked.connect(lambda: self.select_rarity_preset(["C"]))
 
         btn_c_pc = QPushButton("C + PC")
-        btn_c_pc.setStyleSheet(f"font-size: 10px; padding: 3px 8px; border-radius: 5px;")
+        btn_c_pc.setStyleSheet(btn_mini_style)
         btn_c_pc.clicked.connect(lambda: self.select_rarity_preset(["C", "PC"]))
 
         btn_all = QPushButton("Tout sélectionner")
-        btn_all.setStyleSheet(f"font-size: 10px; padding: 3px 8px; border-radius: 5px;")
+        btn_all.setStyleSheet(btn_mini_style)
         btn_all.clicked.connect(lambda: self.select_rarity_preset(["C", "PC", "R", "SR", "UR", "L"]))
 
         btn_none = QPushButton("Tout décocher")
-        btn_none.setStyleSheet(f"font-size: 10px; padding: 3px 8px; border-radius: 5px;")
+        btn_none.setStyleSheet(btn_mini_style)
         btn_none.clicked.connect(lambda: self.select_rarity_preset([]))
 
         rf_title_row.addWidget(btn_c_only)
@@ -1369,7 +1460,7 @@ class TransferCardsModal(QDialog):
         for code, label, color, default_chk in rarities_def:
             chk = QCheckBox(label)
             chk.setChecked(default_chk)
-            chk.setStyleSheet(f"QCheckBox {{ color: {color}; font-weight: 700; font-size: 12px; }}")
+            chk.setStyleSheet(f"QCheckBox {{ color: {color}; font-weight: 700; font-size: 12px; background: transparent; border: none; }}")
             chk.toggled.connect(self.update_preview)
             self.rarity_checks[code] = chk
             chk_row.addWidget(chk)
@@ -1398,7 +1489,17 @@ class TransferCardsModal(QDialog):
 
         # ── Résumé & Estimation ──
         self.lbl_estimate = QLabel("📊  Estimation : En attente d'analyse...")
-        self.lbl_estimate.setStyleSheet(f"font-size: 12px; font-weight: 700; color: #a78bfa; padding: 4px 6px;")
+        self.lbl_estimate.setStyleSheet(f"""
+            QLabel {{
+                background: #0f172a;
+                border: 1px solid #1e293b;
+                border-radius: 8px;
+                padding: 10px 14px;
+                font-size: 12px;
+                font-weight: 600;
+                color: #e2e8f0;
+            }}
+        """)
         layout.addWidget(self.lbl_estimate)
 
         # ── Barre de progression & Logs ──
@@ -1412,7 +1513,7 @@ class TransferCardsModal(QDialog):
 
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setFixedHeight(110)
+        self.log_view.setFixedHeight(85)
         self.log_view.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 8px; color: {C_TEXT}; font-family: Consolas, monospace; font-size: 11px; padding: 6px;")
         layout.addWidget(self.log_view)
 
@@ -1491,19 +1592,30 @@ class TransferCardsModal(QDialog):
             has_donators = True
             acc_name = a.get("name", acc_id)
 
-            row_widget = QWidget()
-            row_widget.setStyleSheet("background: transparent;")
+            row_widget = QFrame()
+            row_widget.setObjectName(f"donatorRow_{acc_id}")
+            row_widget.setStyleSheet(f"""
+                QFrame#donatorRow_{acc_id} {{
+                    background: {C_SURFACE};
+                    border: 1px solid {C_BORDER};
+                    border-radius: 8px;
+                }}
+                QFrame#donatorRow_{acc_id}:hover {{
+                    background: #1a2234;
+                    border-color: {C_BORDER2};
+                }}
+            """)
             row_h = QHBoxLayout(row_widget)
-            row_h.setContentsMargins(4, 2, 4, 2)
+            row_h.setContentsMargins(12, 6, 12, 6)
             row_h.setSpacing(10)
 
             chk = QCheckBox(f"👤  {acc_name}")
             chk.setChecked(True)
-            chk.setStyleSheet(f"font-weight: 600; font-size: 12px; color: {C_TEXT};")
+            chk.setStyleSheet(f"font-weight: 700; font-size: 12px; color: {C_TEXT}; background: transparent; border: none;")
             chk.toggled.connect(self.update_preview)
 
             lbl_badge = QLabel("Calcul...")
-            lbl_badge.setStyleSheet(f"font-size: 11px; font-weight: 700; color: #38bdf8; background: #0f172a; padding: 2px 8px; border-radius: 6px; border: 1px solid #1e293b;")
+            lbl_badge.setStyleSheet("font-size: 11px; font-weight: 700; color: #38bdf8; background: #0f172a; padding: 3px 10px; border-radius: 6px; border: 1px solid #1e293b;")
 
             row_h.addWidget(chk)
             row_h.addStretch()
@@ -1515,7 +1627,7 @@ class TransferCardsModal(QDialog):
 
         if not has_donators:
             empty_lbl = QLabel("Aucun autre compte disponible pour effectuer des dons.")
-            empty_lbl.setStyleSheet(f"color: {C_MUTED}; font-style: italic; padding: 6px;")
+            empty_lbl.setStyleSheet(f"color: {C_MUTED}; font-style: italic; padding: 6px; background: transparent; border: none;")
             self.donators_layout.addWidget(empty_lbl)
 
         self.donators_layout.addStretch()
@@ -1524,6 +1636,17 @@ class TransferCardsModal(QDialog):
     def select_all_donators(self, checked):
         for chk in self.donator_checks.values():
             chk.setChecked(checked)
+        self.update_preview()
+
+    def select_donators_with_cards(self):
+        selected_r = [code for code, chk in self.rarity_checks.items() if chk.isChecked()]
+        for acc_id, chk in self.donator_checks.items():
+            stats = engine.get_account_collection_stats(acc_id)
+            count = 0
+            if stats and "rarityCounts" in stats:
+                rc = stats.get("rarityCounts", {})
+                count = sum(rc.get(r, 0) for r in selected_r)
+            chk.setChecked(count > 0)
         self.update_preview()
 
     def update_source_account(self):
@@ -1557,7 +1680,7 @@ class TransferCardsModal(QDialog):
                 lbl = self.donator_labels.get(acc_id)
                 if lbl:
                     lbl.setText(f"{count} carte(s)")
-                    lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: " + ("#34d399;" if count > 0 else f"{C_MUTED};") + " background: #0f172a; padding: 2px 8px; border-radius: 6px; border: 1px solid #1e293b;")
+                    lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: " + ("#34d399;" if count > 0 else f"{C_MUTED};") + " background: #0f172a; padding: 3px 10px; border-radius: 6px; border: 1px solid #1e293b;")
 
                 if chk.isChecked():
                     active_donators += 1
@@ -1696,9 +1819,24 @@ class GuildModal(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("🏰 Gestion de Guilde — WikiMasters")
-        self.resize(760, 640)
-        self.setMinimumSize(680, 520)
-        self.setStyleSheet(DARK_STYLE + f"QDialog{{background:{C_BG};}}")
+        self.resize(840, 680)
+        self.setMinimumSize(740, 560)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint | Qt.WindowMinimizeButtonHint)
+        self.setStyleSheet(DARK_STYLE + f"""
+            QDialog {{
+                background: {C_BG};
+            }}
+            QFrame#mainGuildBox, QFrame#listGuildBox {{
+                background: {C_SURFACE};
+                border: 1px solid {C_BORDER};
+                border-radius: 12px;
+            }}
+            #mainGuildBox QLabel, #listGuildBox QLabel {{
+                background: transparent;
+                border: none;
+                padding: 0px;
+            }}
+        """)
 
         self.accounts = engine.get_accounts()
         self.worker = None
@@ -1712,13 +1850,13 @@ class GuildModal(QDialog):
         # ── Header ──
         h_layout = QHBoxLayout()
         icon = QLabel("🏰")
-        icon.setStyleSheet("font-size: 28px;")
+        icon.setStyleSheet("font-size: 28px; background: transparent; border: none;")
         t_col = QVBoxLayout()
         t_col.setSpacing(2)
         title = QLabel("Guilde & Faction")
-        title.setStyleSheet("font-size: 17px; font-weight: 800; color: #fb923c;")
+        title.setStyleSheet("font-size: 18px; font-weight: 800; color: #fb923c; background: transparent; border: none;")
         subtitle = QLabel("Invitez et intégrez automatiquement tous vos comptes dans la guilde de votre compte principal.")
-        subtitle.setStyleSheet(f"font-size: 11px; color: {C_MUTED};")
+        subtitle.setStyleSheet(f"font-size: 11px; color: {C_MUTED}; background: transparent; border: none;")
         t_col.addWidget(title)
         t_col.addWidget(subtitle)
         h_layout.addWidget(icon)
@@ -1730,13 +1868,14 @@ class GuildModal(QDialog):
 
         # ── Choix du compte principal ──
         main_box = QFrame()
-        main_box.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 12px; padding: 14px;")
+        main_box.setObjectName("mainGuildBox")
         mb_layout = QVBoxLayout(main_box)
+        mb_layout.setContentsMargins(16, 14, 16, 14)
         mb_layout.setSpacing(10)
 
         mb_row = QHBoxLayout()
         lbl_main = QLabel("⭐  Compte Principal (Chef / Référent de Guilde) :")
-        lbl_main.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT};")
+        lbl_main.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT}; background: transparent; border: none;")
         mb_row.addWidget(lbl_main)
         mb_row.addStretch()
 
@@ -1755,23 +1894,25 @@ class GuildModal(QDialog):
         mb_layout.addLayout(mb_row)
 
         info_lbl = QLabel("ℹ️  Le compte principal analyse sa guilde et envoie les invitations. Tous les comptes secondaires acceptent et rejoignent automatiquement !")
-        info_lbl.setStyleSheet(f"font-size: 11px; color: {C_MUTED}; font-style: italic;")
+        info_lbl.setStyleSheet(f"font-size: 11px; color: {C_MUTED}; font-style: italic; background: transparent; border: none;")
         mb_layout.addWidget(info_lbl)
         layout.addWidget(main_box)
 
         # ── Liste des comptes et statuts ──
         list_box = QFrame()
-        list_box.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 12px; padding: 12px;")
+        list_box.setObjectName("listGuildBox")
         lb_layout = QVBoxLayout(list_box)
-        lb_layout.setSpacing(8)
+        lb_layout.setContentsMargins(16, 14, 16, 14)
+        lb_layout.setSpacing(10)
 
         lb_title = QLabel("👥  Membres de la Flotte :")
-        lb_title.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT};")
+        lb_title.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT}; background: transparent; border: none;")
         lb_layout.addWidget(lb_title)
 
         self.accounts_scroll = QScrollArea()
         self.accounts_scroll.setWidgetResizable(True)
-        self.accounts_scroll.setFixedHeight(120)
+        self.accounts_scroll.setMinimumHeight(180)
+        self.accounts_scroll.setMaximumHeight(280)
         self.accounts_scroll.setStyleSheet(f"""
             QScrollArea {{
                 background: {C_CARD};
@@ -1781,10 +1922,14 @@ class GuildModal(QDialog):
             QScrollBar:vertical {{
                 background: {C_CARD};
                 width: 8px;
+                border-radius: 4px;
             }}
             QScrollBar::handle:vertical {{
                 background: {C_BORDER2};
                 border-radius: 4px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: #fb923c;
             }}
         """)
         self.accounts_widget = QWidget()
@@ -1807,7 +1952,7 @@ class GuildModal(QDialog):
 
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setFixedHeight(110)
+        self.log_view.setFixedHeight(85)
         self.log_view.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 8px; color: {C_TEXT}; font-family: Consolas, monospace; font-size: 11px; padding: 6px;")
         layout.addWidget(self.log_view)
 
@@ -1865,20 +2010,32 @@ class GuildModal(QDialog):
         for a in self.accounts:
             aid = a["id"]
             aname = a.get("name", aid)
-            row = QWidget()
-            row.setStyleSheet("background: transparent;")
+            row = QFrame()
+            row.setObjectName(f"guildRow_{aid}")
+            row.setStyleSheet(f"""
+                QFrame#guildRow_{aid} {{
+                    background: {C_SURFACE};
+                    border: 1px solid {C_BORDER};
+                    border-radius: 8px;
+                }}
+                QFrame#guildRow_{aid}:hover {{
+                    background: #1a2234;
+                    border-color: {C_BORDER2};
+                }}
+            """)
             rh = QHBoxLayout(row)
-            rh.setContentsMargins(4, 2, 4, 2)
+            rh.setContentsMargins(12, 6, 12, 6)
+            rh.setSpacing(10)
 
             is_main = (aid == main_id)
             icon = "⭐" if is_main else "👤"
             lbl_name = QLabel(f"{icon}  {aname}")
-            lbl_name.setStyleSheet(f"font-size: 12px; font-weight: {'800; color: #fbbf24;' if is_main else '600; color:' + C_TEXT + ';'}")
+            lbl_name.setStyleSheet(f"font-size: 12px; font-weight: {'800; color: #fbbf24;' if is_main else '600; color:' + C_TEXT + ';'}; background: transparent; border: none;")
 
             lbl_badge = QLabel("⭐ Compte Principal (Émetteur)" if is_main else "👥 Membre (Adhésion automatique)")
             lbl_badge.setStyleSheet(
                 "font-size: 11px; font-weight: 700; color: " + ("#fbbf24;" if is_main else "#38bdf8;") +
-                " background: #0f172a; padding: 2px 8px; border-radius: 6px; border: 1px solid #1e293b;"
+                " background: #0f172a; padding: 3px 10px; border-radius: 6px; border: 1px solid #1e293b;"
             )
 
             rh.addWidget(lbl_name)
