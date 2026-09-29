@@ -138,9 +138,39 @@ STEALTH_JS = """
 })();
 """
 
+def enforce_single_page(context):
+    """
+    Garantit qu'il n'y a STRICTEMENT qu'une seule page (onglet) maximum active par instance.
+    1. Ferme tous les onglets parasites surnuméraires restaurés par Chromium.
+    2. Bloque et ferme immédiatement toute nouvelle tentative d'ouverture d'onglet ou popup.
+    """
+    try:
+        pages = context.pages
+        while len(pages) > 1:
+            try:
+                pages[-1].close()
+            except Exception:
+                pass
+            pages = context.pages
+
+        page = pages[0] if pages else context.new_page()
+
+        def _block_extra_pages(new_page):
+            try:
+                new_page.close()
+            except Exception:
+                pass
+
+        context.on("page", _block_extra_pages)
+        return page
+    except Exception:
+        return context.pages[0] if context.pages else context.new_page()
+
 def apply_stealth(context):
     """Injecte les scripts de masquage anti-détection dans le contexte de navigation."""
     context.add_init_script(STEALTH_JS)
+    enforce_single_page(context)
+
 
 def human_delay(min_sec=0.8, max_sec=2.2):
     """Attend un délai aléatoire simulant un temps de réaction humain naturel."""

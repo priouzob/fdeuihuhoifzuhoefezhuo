@@ -25,7 +25,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from stealth import apply_stealth, human_delay, human_click, check_and_handle_turnstile, check_and_handle_verification_modal
+from stealth import apply_stealth, human_delay, human_click, check_and_handle_turnstile, check_and_handle_verification_modal, enforce_single_page
 
 BASE_DIR = Path(__file__).parent.resolve()
 CONFIG_FILE = BASE_DIR / "config.json"
@@ -921,22 +921,25 @@ def record_achievements_check(account_id):
 def claim_account_achievements(page_or_context, account_name, status_callback=None):
     """
     Réclame automatiquement tous les succès débloqués sur /achievements
-    en utilisant un onglet dédié afin de ne JAMAIS quitter ou perturber la page de tirage /pulls.
+    en utilisant STRICTEMENT la page unique de l'instance pour ne JAMAIS ouvrir de second onglet.
     """
-    context = page_or_context.context if hasattr(page_or_context, "context") else page_or_context
-    ach_page = None
-    try:
-        ach_page = context.new_page()
-        safe_notify(status_callback, f"[{account_name}] 🏆 Vérification des succès en tâche de fond...", "info")
+    if hasattr(page_or_context, "goto"):
+        page = page_or_context
+    elif hasattr(page_or_context, "pages"):
+        page = enforce_single_page(page_or_context)
+    else:
+        return 0
 
-        # 1. Visite /achievements dans l'onglet temporaire dédié
+    safe_notify(status_callback, f"[{account_name}] 🏆 Vérification des succès...", "info")
+    try:
+        # 1. Visite /achievements sur la page unique
         try:
-            ach_page.goto("https://wiki-masters.com/achievements", wait_until="domcontentloaded", timeout=12000)
+            page.goto("https://wiki-masters.com/achievements", wait_until="domcontentloaded", timeout=12000)
         except Exception:
             return 0
 
         # 2. Déclencher la synchronisation des succès via API
-        ach_page.evaluate("""async () => {
+        page.evaluate("""async () => {
             try {
                 await fetch('/api/achievements/check', {
                     method: 'POST',
@@ -950,7 +953,7 @@ def claim_account_achievements(page_or_context, account_name, status_callback=No
         claimed_count = 0
 
         # 3. Vérifier si un bouton 'Tout réclamer' existe
-        claim_all = ach_page.locator("button:has-text('Tout réclamer'), button:has-text('Tout Reclamer'), button:has-text('Claim all')").first
+        claim_all = page.locator("button:has-text('Tout réclamer'), button:has-text('Tout Reclamer'), button:has-text('Claim all')").first
         if claim_all.count() > 0 and claim_all.is_visible() and claim_all.is_enabled():
             human_delay(0.2, 0.4)
             claim_all.click()
@@ -960,7 +963,7 @@ def claim_account_achievements(page_or_context, account_name, status_callback=No
 
         # 4. Cliquer sur chaque bouton 'Réclamer' individuel
         for _ in range(25):
-            btns = ach_page.locator("button:has-text('Réclamer'), button:has-text('Reclamer'), button:has-text('Claim')")
+            btns = page.locator("button:has-text('Réclamer'), button:has-text('Reclamer'), button:has-text('Claim')")
             if btns.count() == 0:
                 break
             btn = btns.first
@@ -986,12 +989,7 @@ def claim_account_achievements(page_or_context, account_name, status_callback=No
     except Exception as e:
         safe_notify(status_callback, f"[{account_name}] Erreur vérification succès : {e}", "warning")
         return 0
-    finally:
-        if ach_page is not None:
-            try:
-                ach_page.close()
-            except Exception:
-                pass
+
 
 def sync_account_friends(page, current_account, all_accounts, status_callback=None):
     """
@@ -1138,7 +1136,7 @@ def run_claim_achievements_standalone(account_id, status_callback=None):
             args=get_browser_launch_args(account_id)
         )
         apply_stealth(context)
-        page = context.pages[0] if context.pages else context.new_page()
+        page = enforce_single_page(context)
         try:
             claimed = claim_account_achievements(page, name, status_callback)
             extract_collection_stats(page, account_id)
@@ -1174,7 +1172,8 @@ def run_sync_friends_standalone(account_id, status_callback=None):
             args=get_browser_launch_args(account_id)
         )
         apply_stealth(context)
-        page = context.pages[0] if context.pages else context.new_page()
+        page = enforce_single_page(context)
+
         try:
             page.goto("https://wiki-masters.com/friends", wait_until="domcontentloaded", timeout=25000)
             sync_account_friends(page, acc, config.get("accounts", []), status_callback)
@@ -1239,6 +1238,8 @@ def get_browser_launch_args(account_id=None):
         "--renderer-process-limit=2",
         "--window-position=-32000,-32000",
         "--window-size=1,1",
+        "--disable-restore-session-state",
+        "--disable-session-crashed-bubble",
         "--disable-features=SplashScreen,AutoUpdate"
     ]
 
@@ -1266,7 +1267,8 @@ def verify_session(account_id):
                 args=get_browser_launch_args(account_id)
             )
             apply_stealth(context)
-            page = context.pages[0] if context.pages else context.new_page()
+            page = enforce_single_page(context)
+
             page.goto("https://wiki-masters.com/pulls", wait_until="domcontentloaded", timeout=20000)
             time.sleep(2)
             check_and_handle_verification_modal(page)
@@ -1572,6 +1574,7 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
         f"--user-data-dir={resolved_p_dir}",
         "--profile-directory=Default",
         "--new-window",
+        "--disable-restore-session-state",
         f"--window-name=WikiMasters_{account_id}",
         "--window-size=1280,850",
         "--window-position=100,60",
@@ -1581,6 +1584,7 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
         "--disable-features=Translate,OptimizationHints",
         url
     ]
+
 
     creationflags = 0
     startupinfo = None
@@ -1814,8 +1818,9 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                     args=get_browser_launch_args(account_id)
                 )
                 apply_stealth(context)
-                page = context.pages[0] if context.pages else context.new_page()
+                page = enforce_single_page(context)
                 setup_network_optimizations(page)
+
 
                 captured_api_cards = []
                 def _on_response(res):
@@ -2123,15 +2128,15 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                     claimed_in_pass = 0
                     if should_check_ach:
                         try:
-                            claimed_in_pass = claim_account_achievements(context, name, status_callback)
+                            claimed_in_pass = claim_account_achievements(page, name, status_callback)
                             record_achievements_check(account_id)
                         except Exception:
                             claimed_in_pass = 0
 
-                    # Si de nouveaux succès ont été validés, recharger /pulls pour ouvrir immédiatement d'éventuels paquets bonus !
+                    # Si de nouveaux succès ont été validés, recharger /pulls sur la page unique pour ouvrir les paquets bonus
                     if claimed_in_pass > 0:
                         try:
-                            page.reload(wait_until="domcontentloaded", timeout=10000)
+                            page.goto("https://wiki-masters.com/pulls", wait_until="domcontentloaded", timeout=12000)
                             time.sleep(0.8)
                         except Exception:
                             pass
@@ -2150,7 +2155,7 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                     except Exception:
                         pass
 
-                if acc.get("auto_accept_trades", True):
+                if acc.get("auto_trades", acc.get("auto_accept_trades", True)):
                     try:
                         from transfer import accept_incoming_trades
                         trade_res = accept_incoming_trades(page)
@@ -2159,6 +2164,7 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                             safe_notify(status_callback, f"[{name}] 🤝 {len(acc_trades)} échange(s) reçu(s) accepté(s) automatiquement !", "success")
                     except Exception:
                         pass
+
 
                 if acc.get("auto_guild", True):
                     try:

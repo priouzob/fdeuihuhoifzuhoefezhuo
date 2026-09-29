@@ -10,7 +10,7 @@ import random
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-from stealth import apply_stealth, human_delay
+from stealth import apply_stealth, human_delay, enforce_single_page
 
 RARITY_ORDER = ["L", "UR", "SR", "R", "PC", "C"]
 MAX_CARDS_PER_TRADE = 100
@@ -34,30 +34,136 @@ def fetch_account_friends(page):
         friends = []
         for f in data["friendships"]:
             if f.get("status") == "accepted":
-                # Identifier l'autre utilisateur
-                other = f.get("addressee") if f.get("requester") and f.get("requester", {}).get("id") else f.get("addressee")
-                # On extrait les deux pour être certain
                 friends.append(f)
         return data["friendships"]
     except Exception:
         return []
 
-def get_friend_user_id(page, friend_username):
-    """Trouve l'user_id d'un ami à partir de son nom d'utilisateur."""
+def resolve_trade_partner(page, target_username):
+    """
+    Résout l'ID du destinataire et mon ID utilisateur pour un échange de cartes.
+    Permet d'échanger entre comptes :
+    1. PRIORITÉ GUILDE (/api/guilds/members) : Permet d'envoyer une demande d'échange directement
+       depuis la guilde vers n'importe quel membre, MÊME ceux qu'on ne peut pas ajouter en ami !
+    2. Liste d'amis (/api/friends) : Pour les comptes déjà amis acceptés
+    3. Recherche d'utilisateurs (/api/friends/search?q=...)
+    Retourne: (recipient_id, my_id, method_used)
+    """
     try:
-        friendships = fetch_account_friends(page)
-        target_clean = friend_username.lower().strip()
-        for f in friendships:
-            if f.get("status") == "accepted":
-                addr = f.get("addressee", {})
-                req = f.get("requester", {})
-                if addr.get("username", "").lower() == target_clean:
-                    return addr.get("id"), req.get("id") # (friend_id, my_id)
-                if req.get("username", "").lower() == target_clean:
-                    return req.get("id"), addr.get("id") # (friend_id, my_id)
+        res = page.evaluate("""async (targetName) => {
+            const clean = targetName.toLowerCase().trim();
+            let recipientId = null;
+            let myId = null;
+            let method = null;
+
+            // 1. Tenter d'abord de récupérer mon propre ID utilisateur
+            try {
+                const rMe = await fetch('/api/guilds');
+                if (rMe.ok) {
+                    const dMe = await rMe.json();
+                    if (dMe?.membership?.user_id) myId = dMe.membership.user_id;
+                    else if ((dMe?.guilds || [])[0]?.membership?.user_id) myId = dMe.guilds[0].membership.user_id;
+                }
+            } catch(e) {}
+
+            // 2. ÉCHANGE DEPUIS LA GUILDE (/api/guilds/members)
+            // Permet d'échanger avec tous les membres de la guilde, même sans être amis !
+            try {
+                const rGuild = await fetch('/api/guilds/members');
+                if (rGuild.ok) {
+                    const dGuild = await rGuild.json();
+                    const members = dGuild?.members || [];
+                    for (const m of members) {
+                        if (m.is_self && !myId) {
+                            myId = m.user_id || m.profile?.id;
+                        }
+                        const uname = (m.profile?.username || '').toLowerCase().trim();
+                        if (uname === clean) {
+                            recipientId = m.user_id || m.profile?.id;
+                            method = 'guild';
+                        }
+                    }
+                }
+            } catch(e) {}
+
+            if (recipientId && myId) {
+                return { recipient_id: recipientId, my_id: myId, method: 'guild' };
+            }
+
+            // 3. VÉRIFICATION DANS LES AMIS (/api/friends)
+            try {
+                const rFriends = await fetch('/api/friends');
+                if (rFriends.ok) {
+                    const dFriends = await rFriends.json();
+                    const friendships = dFriends?.friendships || [];
+                    for (const f of friendships) {
+                        if (f.status === 'accepted') {
+                            const addr = f.addressee || {};
+                            const req = f.requester || {};
+                            const addrName = (addr.username || '').toLowerCase().trim();
+                            const reqName = (req.username || '').toLowerCase().trim();
+                            
+                            if (addrName === clean) {
+                                recipientId = addr.id;
+                                if (!myId) myId = req.id;
+                                method = 'friends';
+                            } else if (reqName === clean) {
+                                recipientId = req.id;
+                                if (!myId) myId = addr.id;
+                                method = 'friends';
+                            }
+                        }
+                    }
+                }
+            } catch(e) {}
+
+            if (recipientId && myId) {
+                return { recipient_id: recipientId, my_id: myId, method: 'friends' };
+            }
+
+            // 4. RECHERCHE GLOBALE (/api/friends/search)
+            try {
+                const rSearch = await fetch(`/api/friends/search?q=${encodeURIComponent(targetName)}`);
+                if (rSearch.ok) {
+                    const dSearch = await rSearch.json();
+                    const users = dSearch?.users || [];
+                    const found = users.find(u => (u.username || '').toLowerCase().trim() === clean);
+                    if (found) {
+                        recipientId = found.id;
+                        method = 'search';
+                    }
+                }
+            } catch(e) {}
+
+            // 5. Fallback pour myId si toujours absent
+            if (!myId) {
+                try {
+                    const rUser = await fetch('/api/user');
+                    if (rUser.ok) {
+                        const dUser = await rUser.json();
+                        if (dUser?.id) myId = dUser.id;
+                    }
+                } catch(e) {}
+            }
+
+            return {
+                recipient_id: recipientId,
+                my_id: myId,
+                method: method || (recipientId ? 'search' : 'not_found')
+            };
+        }""", target_username)
+
+        if res and res.get("recipient_id") and res.get("my_id"):
+            return res["recipient_id"], res["my_id"], res.get("method", "guild")
     except Exception:
         pass
-    return None, None
+    return None, None, "error"
+
+def get_friend_user_id(page, friend_username):
+    """Trouve l'user_id d'un ami ou membre de guilde à partir de son nom d'utilisateur."""
+    rec_id, my_id, _ = resolve_trade_partner(page, friend_username)
+    return rec_id, my_id
+
 
 def get_cards_for_transfer(page, rarities, keep_duplicates_only=False):
     """
@@ -323,7 +429,7 @@ def execute_bulk_donation(source_account_ids, target_account_name, rarities, kee
                     args=engine.get_browser_launch_args(source_id)
                 )
                 apply_stealth(context)
-                page = context.pages[0] if context.pages else context.new_page()
+                page = enforce_single_page(context)
 
                 try:
                     page.goto("https://wiki-masters.com/trades", wait_until="domcontentloaded", timeout=25000)
@@ -331,29 +437,25 @@ def execute_bulk_donation(source_account_ids, target_account_name, rarities, kee
                     pass
                 time.sleep(1.2)
 
-                # Résolution de l'ID ami
-                recipient_id, my_id = get_friend_user_id(page, target_real_name)
-                if not recipient_id or not my_id:
-                    # Recherche de l'utilisateur
-                    search_res = page.evaluate("""async (q) => {
-                        try {
-                            const r = await fetch(`/api/friends/search?q=${encodeURIComponent(q)}`);
-                            return await r.json();
-                        } catch(e) { return null; }
-                    }""", target_real_name)
+                # Résolution du partenaire d'échange (Priorité Guilde > Amis > Recherche)
+                recipient_id, my_id, method = resolve_trade_partner(page, target_real_name)
 
-                    users = (search_res or {}).get("users", [])
-                    target_user = next((u for u in users if u.get("username", "").lower() == target_real_name.lower()), None)
-                    if target_user:
-                        recipient_id = target_user.get("id")
-                        my_id = page.evaluate("""async () => {
-                            try {
-                                const r = await fetch('/api/user');
-                                const d = await r.json();
-                                return d.id;
-                            } catch(e) { return null; }
-                        }""")
+                if method == "guild":
+                    notify(f"[{source_name}] 🏰 Partenaire {target_real_name} résolu via la guilde (échange direct inter-membres sans besoin d'ami) !", "info")
+                elif method == "friends":
+                    notify(f"[{source_name}] 🤝 Partenaire {target_real_name} résolu via la liste d'amis.", "info")
+                elif method == "search":
+                    notify(f"[{source_name}] 🔍 Partenaire {target_real_name} résolu via recherche globale.", "info")
+                    # Tenter d'inviter en guilde et en ami pour consolider les liens
+                    try:
                         page.evaluate("""async (id) => {
+                            try {
+                                await fetch('/api/guilds/invite', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({user_id: id})
+                                });
+                            } catch(e) {}
                             try {
                                 await fetch('/api/friends', {
                                     method: 'POST',
@@ -362,12 +464,14 @@ def execute_bulk_donation(source_account_ids, target_account_name, rarities, kee
                                 });
                             } catch(e) {}
                         }""", recipient_id)
-                        notify(f"[{source_name}] 🤝 Demande d'ami envoyée à {target_real_name}.", "warning")
+                    except Exception:
+                        pass
 
                 if not recipient_id or not my_id:
-                    notify(f"[{source_name}] ⚠️ Impossible de résoudre l'ami {target_real_name}. Passage au compte suivant.", "warning")
+                    notify(f"[{source_name}] ⚠️ Impossible de résoudre le destinataire {target_real_name} (ni en guilde, ni en ami). Passage au compte suivant.", "warning")
                     failed_sources.append(source_name)
                     continue
+
 
                 notify(f"[{source_name}] 🔍 Analyse de la collection ({', '.join(rarities)})...", "info")
                 cards = get_cards_for_transfer(page, rarities, keep_duplicates_only=keep_duplicates_only)
@@ -431,7 +535,7 @@ def execute_bulk_donation(source_account_ids, target_account_name, rarities, kee
                     args=engine.get_browser_launch_args(target_id)
                 )
                 apply_stealth(context)
-                page = context.pages[0] if context.pages else context.new_page()
+                page = enforce_single_page(context)
 
                 try:
                     page.goto("https://wiki-masters.com/trades", wait_until="domcontentloaded", timeout=25000)

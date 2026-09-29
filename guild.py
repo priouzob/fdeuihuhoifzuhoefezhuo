@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-from stealth import apply_stealth, human_delay
+from stealth import apply_stealth, human_delay, enforce_single_page
 
 def get_tz_header():
     return {"x-wiki-calendar-tz": "Europe/Paris", "Content-Type": "application/json"}
@@ -298,7 +298,8 @@ def execute_guild_sync(main_account_id=None, status_callback=None):
                 args=engine.get_browser_launch_args(main_acc["id"])
             )
             apply_stealth(ctx)
-            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            page = enforce_single_page(ctx)
+
 
             try:
                 page.goto("https://www.wiki-masters.com/guild", wait_until="domcontentloaded", timeout=25000)
@@ -389,7 +390,8 @@ def execute_guild_sync(main_account_id=None, status_callback=None):
                     args=engine.get_browser_launch_args(acc["id"])
                 )
                 apply_stealth(ctx2)
-                page2 = ctx2.pages[0] if ctx2.pages else ctx2.new_page()
+                page2 = enforce_single_page(ctx2)
+
 
                 try:
                     page2.goto("https://www.wiki-masters.com/guild", wait_until="domcontentloaded", timeout=25000)

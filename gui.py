@@ -1465,8 +1465,9 @@ class TransferCardsModal(QDialog):
         t_col.setSpacing(2)
         title = QLabel("Dons & Transferts de Cartes")
         title.setStyleSheet("font-size: 18px; font-weight: 800; color: #34d399; background: transparent; border: none;")
-        subtitle = QLabel("Transférez vos cartes par lots de 100 selon leur rareté. Centralisez TOUS les dons vers un compte en 1 clic !")
+        subtitle = QLabel("Transférez vos cartes par lots de 100 selon leur rareté. Échanges directs via la Guilde ou Amis (même sans être amis) !")
         subtitle.setStyleSheet(f"font-size: 11px; color: {C_MUTED}; background: transparent; border: none;")
+
         t_col.addWidget(title)
         t_col.addWidget(subtitle)
         h_layout.addWidget(icon)
