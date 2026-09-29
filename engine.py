@@ -58,21 +58,46 @@ def unmark_account_busy(account_id):
     with _account_busy_lock:
         _account_busy_set.discard(account_id)
 
-def clean_profile_locks(browser_key):
-    """Nettoie les fichiers de verrouillage résiduels (SingletonLock, lockfile) du profil Chrome."""
+def clean_profile_locks(browser_key, max_wait=2.0):
+    """Nettoie de façon garantie tous les verrous résiduels (SingletonLock, lockfile, etc.) du profil Chrome."""
     try:
         acc = get_account_info(browser_key)
         p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{browser_key}")
         if not p_dir.exists():
             return
-        lock_names = ["lockfile", "SingletonLock", "SingletonSocket", "SingletonCookie"]
-        for name in lock_names:
-            f = p_dir / name
-            if f.exists():
-                try:
-                    f.unlink()
-                except Exception:
-                    pass
+        lock_names = ["lockfile", "SingletonLock", "SingletonSocket", "SingletonCookie", "parent.lock"]
+        t_end = time.time() + max_wait
+        while time.time() < t_end:
+            all_clean = True
+            for name in lock_names:
+                f = p_dir / name
+                if f.exists():
+                    try:
+                        f.unlink()
+                    except Exception:
+                        all_clean = False
+            if all_clean:
+                break
+            time.sleep(0.1)
+
+        # Nettoyer l'état de crash éventuel dans Preferences pour éviter la bulle 'Restaurer les pages'
+        prefs_file = p_dir / "Default" / "Preferences"
+        if prefs_file.exists():
+            try:
+                with open(prefs_file, "r", encoding="utf-8") as pf:
+                    p_data = json.load(pf)
+                changed = False
+                if p_data.get("profile", {}).get("exit_type") not in (None, "Normal"):
+                    p_data["profile"]["exit_type"] = "Normal"
+                    changed = True
+                if p_data.get("profile", {}).get("exited_cleanly") is False:
+                    p_data["profile"]["exited_cleanly"] = True
+                    changed = True
+                if changed:
+                    with open(prefs_file, "w", encoding="utf-8") as pf:
+                        json.dump(p_data, pf)
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -81,20 +106,30 @@ def kill_browser_processes(browser_key):
     try:
         import psutil
         target_key = str(browser_key).lower()
+        matched_procs = []
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
                 cmdline = " ".join(proc.info.get('cmdline') or []).lower()
                 if f"profiles/{target_key}" in cmdline or f"profiles\\{target_key}" in cmdline:
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=0.6)
-                    except (psutil.TimeoutExpired, psutil.NoSuchProcess):
-                        proc.kill()
+                    matched_procs.append(proc)
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 pass
+
+        if matched_procs:
+            for p in matched_procs:
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+            gone, alive = psutil.wait_procs(matched_procs, timeout=1.0)
+            for p in alive:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
     except Exception:
         pass
-    clean_profile_locks(browser_key)
+    clean_profile_locks(browser_key, max_wait=1.5)
     time.sleep(0.05)
 
 def load_collection_stats():
@@ -1153,14 +1188,25 @@ def setup_account(account_id, start_url="https://wiki-masters.com/signup", statu
     safe_notify(status_callback, f"Créez votre compte ou connectez-vous sur WikiMasters, puis fermez {b_name} ou cliquez sur 'J'ai fini'.", "warning")
 
     try:
-        local_proc = subprocess.Popen([
+        cmd = [
             exe_path,
             f"--user-data-dir={p_dir}",
+            "--profile-directory=Default",
+            "--new-window",
             "--no-first-run",
             "--no-default-browser-check",
+            "--disable-session-crashed-bubble",
+            "--disable-features=Translate,OptimizationHints",
             start_url
-        ])
+        ]
+        creationflags = 0
+        if sys.platform == "win32":
+            creationflags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+
+        local_proc = subprocess.Popen(cmd, creationflags=creationflags, close_fds=True)
         _active_setup_proc = local_proc
+        time.sleep(0.5)
+        bring_chrome_to_foreground("WikiMasters")
 
         while local_proc.poll() is None:
             time.sleep(0.8)
@@ -1189,11 +1235,44 @@ def setup_account(account_id, start_url="https://wiki-masters.com/signup", statu
         safe_notify(status_callback, f"Erreur lors de la configuration : {e}", "error")
         return False, str(e)
 
+def bring_chrome_to_foreground(name_hint="WikiMasters"):
+    """Force la fenêtre du navigateur nouvellement ouverte à passer au tout premier plan sur Windows."""
+    try:
+        if sys.platform != "win32":
+            return
+        import ctypes
+        user32 = ctypes.windll.user32
+        hwnds = []
+
+        def enum_win(hwnd, lparam):
+            if user32.IsWindowVisible(hwnd):
+                length = user32.GetWindowTextLengthW(hwnd)
+                if length > 0:
+                    buff = ctypes.create_unicode_buffer(length + 1)
+                    user32.GetWindowTextW(hwnd, buff, length + 1)
+                    t = buff.value.lower()
+                    if name_hint.lower() in t or "chrome" in t:
+                        hwnds.append(hwnd)
+            return True
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        user32.EnumWindows(WNDENUMPROC(enum_win), 0)
+
+        for hwnd in hwnds:
+            try:
+                user32.ShowWindow(hwnd, 9)  # SW_RESTORE / SW_SHOWNORMAL
+                user32.SetForegroundWindow(hwnd)
+                user32.BringWindowToTop(hwnd)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
 def open_account_browser(account_id, url="https://wiki-masters.com/pulls"):
     """
     Lance le navigateur associé à ce compte avec son profil persistant
-    dans une fenêtre visible et autonome.
-    Les cookies et sessions de connexion sont automatiquement chargés.
+    dans une fenêtre visible et autonome au premier plan absolu.
+    Gère la coexistence avec l'instance Chrome personnelle de l'utilisateur.
     """
     acc = get_account_info(account_id)
     name = acc.get("name", account_id)
@@ -1202,24 +1281,53 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls"):
     p_dir.mkdir(parents=True, exist_ok=True)
 
     b_type = acc.get("browser_type", "chrome")
-    b_name = SUPPORTED_BROWSERS.get(b_type, {}).get("name", "Navigateur")
+    b_name = SUPPORTED_BROWSERS.get(b_type, {}).get("name", "Google Chrome")
 
     if not os.path.exists(exe_path):
         return False, f"Exécutable {b_name} ({exe_path}) introuvable."
 
+    # Attendre si une tâche de fond est en train de libérer le compte
+    for _ in range(12):
+        if not is_account_busy(account_id):
+            break
+        time.sleep(0.3)
+
     kill_browser_processes(account_id)
+    clean_profile_locks(account_id, max_wait=2.0)
     time.sleep(0.3)
 
     cmd = [
         exe_path,
         f"--user-data-dir={p_dir}",
+        "--profile-directory=Default",
+        "--new-window",
         "--no-first-run",
         "--no-default-browser-check",
+        "--disable-session-crashed-bubble",
+        "--disable-features=Translate,OptimizationHints",
         url
     ]
+
+    creationflags = 0
+    if sys.platform == "win32":
+        creationflags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+
     try:
-        subprocess.Popen(cmd)
-        return True, f"{b_name} ouvert pour {name}."
+        proc = subprocess.Popen(cmd, creationflags=creationflags, close_fds=True)
+        time.sleep(0.8)
+
+        # Vérification si le processus est resté vivant ou a quitté prématurément (collision)
+        if proc.poll() is not None:
+            # Deuxième tentative de secours avec purge forcée des verrous
+            kill_browser_processes(account_id)
+            clean_profile_locks(account_id, max_wait=2.0)
+            time.sleep(0.4)
+            proc = subprocess.Popen(cmd, creationflags=creationflags, close_fds=True)
+            time.sleep(0.6)
+
+        # Forcer la nouvelle fenêtre au premier plan sur l'écran
+        bring_chrome_to_foreground("WikiMasters")
+        return True, f"{b_name} ouvert avec succès pour {name} (fenêtre au premier plan)."
     except Exception as e:
         return False, str(e)
 

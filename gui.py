@@ -3516,6 +3516,16 @@ class MainWindow(QMainWindow):
         name = acc.get("name", account_id)
         b_type = acc.get("browser_type", "chrome")
         b_name = engine.SUPPORTED_BROWSERS.get(b_type, {}).get("name", "Navigateur")
+
+        # Si un tirage ou sync est en cours sur ce compte, patienter un instant
+        if account_id in self.claim_workers or engine.is_account_busy(account_id):
+            self.log(f"⏳ '{name}' effectue un tirage ou une action. Attente de la fin avant d'ouvrir le navigateur...", "warning")
+            for _ in range(12):
+                QApplication.processEvents()
+                time.sleep(0.5)
+                if account_id not in self.claim_workers and not engine.is_account_busy(account_id):
+                    break
+
         self.log(f"🌐 Lancement de {b_name} pour '{name}'...", "info")
         ok, msg = engine.open_account_browser(account_id)
         if ok:
