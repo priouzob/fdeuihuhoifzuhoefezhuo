@@ -51,7 +51,7 @@ from PySide6.QtWidgets import (
     QButtonGroup, QComboBox
 )
 from PySide6.QtCore import Qt, QTimer, QThread, Signal, Slot, QSize, QRect
-from PySide6.QtGui import QFont, QIcon, QPixmap, QColor, QPainter, QLinearGradient, QPen, QBrush
+from PySide6.QtGui import QFont, QIcon, QPixmap, QColor, QPainter, QLinearGradient, QPen, QBrush, QTextCursor
 
 import engine
 import updater
@@ -2887,6 +2887,21 @@ class AccountCard(QFrame):
     def request_open_browser(self, b_type=""):
         acc = engine.get_account_info(self.account_id)
         target = b_type or acc.get("browser_type", "chrome")
+        # Retour visuel immédiat sur le bouton pour confirmer la prise en compte du clic
+        target_btn = None
+        if target == "chrome" and hasattr(self, "btn_open_chrome"):
+            target_btn = self.btn_open_chrome
+        elif target == "brave" and hasattr(self, "btn_open_brave"):
+            target_btn = self.btn_open_brave
+        elif target == "edge" and hasattr(self, "btn_open_edge"):
+            target_btn = self.btn_open_edge
+
+        if target_btn is not None:
+            old_text = target_btn.text()
+            target_btn.setText("⏳ Lancement...")
+            target_btn.setEnabled(False)
+            QTimer.singleShot(2500, lambda: (target_btn.setText(old_text), target_btn.setEnabled(True)))
+
         self.open_browser_requested.emit(self.account_id, target)
 
     def set_default_browser(self, b_key):
@@ -3075,14 +3090,31 @@ class AccountCard(QFrame):
             self.lbl_collection.setToolTip("Synchronisation automatique au prochain tirage ou actualisation")
 
 
+    _pixmap_cache = {}
+
     def _load_preview(self, path):
         self.screenshot_path = path
-        pix = QPixmap(path)
-        if not pix.isNull():
-            self.preview_img.setText("")
-            self.preview_img.setPixmap(
-                pix.scaled(270, 75, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            )
+        if not path or not os.path.exists(path):
+            return
+        try:
+            mtime = os.path.getmtime(path)
+            cache_key = (str(path), mtime)
+            if cache_key in AccountCard._pixmap_cache:
+                scaled = AccountCard._pixmap_cache[cache_key]
+            else:
+                pix = QPixmap(path)
+                if not pix.isNull():
+                    scaled = pix.scaled(270, 75, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    AccountCard._pixmap_cache[cache_key] = scaled
+                    if len(AccountCard._pixmap_cache) > 40:
+                        AccountCard._pixmap_cache.pop(next(iter(AccountCard._pixmap_cache)))
+                else:
+                    scaled = None
+            if scaled and not scaled.isNull():
+                self.preview_img.setText("")
+                self.preview_img.setPixmap(scaled)
+        except Exception:
+            pass
 
     def set_status(self, text, bg, fg):
         self.status_badge.setText(text)
@@ -3811,6 +3843,14 @@ class MainWindow(QMainWindow):
             f"<span style='color:{col}; font-weight:500;'>{message}</span>"
         )
         self.log_box.append(html)
+        doc = self.log_box.document()
+        if doc.blockCount() > 1500:
+            cursor = QTextCursor(doc)
+            cursor.movePosition(QTextCursor.Start)
+            for _ in range(300):
+                cursor.select(QTextCursor.BlockUnderCursor)
+                cursor.removeSelectedText()
+                cursor.deleteChar()
         self.lbl_status_bar.setText(message[:90] + ("…" if len(message) > 90 else ""))
 
     def tick_clock(self):

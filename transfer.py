@@ -69,7 +69,7 @@ def get_cards_for_transfer(page, rarities, keep_duplicates_only=False):
     
     script = """async (raritiesList) => {
         const results = [];
-        for (const r of raritiesList) {
+        await Promise.all(raritiesList.map(async (r) => {
             let pageNum = 1;
             while (pageNum <= 100) {
                 let pageData = null;
@@ -103,7 +103,7 @@ def get_cards_for_transfer(page, rarities, keep_duplicates_only=False):
                 if (pageData.collection.length < 50) break;
                 pageNum++;
             }
-        }
+        }));
         return results;
     }"""
     
