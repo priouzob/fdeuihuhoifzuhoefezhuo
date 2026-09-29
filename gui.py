@@ -57,31 +57,40 @@ import engine
 import updater
 
 # ─── Palette de couleurs ────────────────────────────────────────────────────
-C_BG       = "#07090f"
-C_SURFACE  = "#0d1117"
-C_CARD     = "#111827"
-C_BORDER   = "#1f2937"
-C_BORDER2  = "#374151"
-C_TEXT     = "#f1f5f9"
-C_MUTED    = "#6b7280"
-C_ACCENT   = "#38bdf8"
-C_ACCENT2  = "#60a5fa"
-C_GREEN    = "#22c55e"
-C_YELLOW   = "#f59e0b"
-C_RED      = "#ef4444"
-C_PURPLE   = "#a78bfa"
-C_TEAL     = "#2dd4bf"
+C_BG       = "#050812"   # Fond principal : noir navy profond
+C_SURFACE  = "#0b1120"   # Surfaces de panneaux
+C_CARD     = "#0e1629"   # Cartes et conteneurs internes
+C_ELEVATED = "#121e33"   # Surfaces légèrement surélevées
+C_BORDER   = "#1a2840"   # Bordures subtiles
+C_BORDER2  = "#253b58"   # Bordures visibles
+C_BORDER3  = "#375270"   # Bordures actives/survol
+C_TEXT     = "#e8edf5"   # Texte primaire
+C_TEXT2    = "#a8b4c8"   # Texte secondaire
+C_MUTED    = "#546a82"   # Texte discret/désactivé
+C_ACCENT   = "#38bdf8"   # Bleu ciel accent principal
+C_ACCENT2  = "#7dd3fc"   # Accent plus clair
+C_ACCENT3  = "#0ea5e9"   # Accent plus foncé
+C_GREEN    = "#34d399"   # Succès vert émeraude
+C_YELLOW   = "#fbbf24"   # Avertissement ambré
+C_RED      = "#f87171"   # Erreur rouge doux
+C_PURPLE   = "#a78bfa"   # Violet
+C_TEAL     = "#2dd4bf"   # Teal
 
 ACCOUNT_THEMES = [
-    ("stop:0 #1a2a4a, stop:1 #0d1a2e", "#38bdf8", "🌐"),
-    ("stop:0 #2a1a0a, stop:1 #1a0d05", "#fb923c", "🦊"),
-    ("stop:0 #2a0a2a, stop:1 #1a051a", "#c084fc", "🔮"),
-    ("stop:0 #0a2a1a, stop:1 #051a0d", "#4ade80", "🍀"),
-    ("stop:0 #2a0a14, stop:1 #1a050d", "#f43f5e", "💎"),
-    ("stop:0 #1e293b, stop:1 #0f172a", "#94a3b8", "⭐"),
+    ("stop:0 #0c1d3d, stop:1 #070f1e", "#38bdf8", "🌐"),
+    ("stop:0 #231508, stop:1 #120b04", "#fb923c", "🦊"),
+    ("stop:0 #1e0e2e, stop:1 #0f0718", "#c084fc", "🔮"),
+    ("stop:0 #0a2016, stop:1 #05100b", "#4ade80", "🍀"),
+    ("stop:0 #220b10, stop:1 #110508", "#f87171", "💎"),
+    ("stop:0 #192232, stop:1 #0d1219", "#94a3b8", "⭐"),
 ]
 
 DARK_STYLE = f"""
+/* ═══════════════════════════════════════════════════════════════
+   WikiMasters Auto-Claimer — Design System v3.0 · Glass Dark
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Base ── */
 QMainWindow, QDialog {{
     background-color: {C_BG};
 }}
@@ -89,119 +98,342 @@ QWidget {{
     color: {C_TEXT};
     font-family: 'Segoe UI', 'Inter', system-ui, -apple-system, sans-serif;
     font-size: 12px;
+    outline: none;
 }}
-QFrame#statsBar, QFrame#logFrame, QFrame#headerFrame {{
+
+/* ── Panels ── */
+QFrame#statsBar {{
+    background-color: {C_SURFACE};
+    border: none;
+    border-bottom: 1px solid {C_BORDER};
+    border-radius: 0px;
+}}
+QFrame#headerFrame {{
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {C_ELEVATED}, stop:1 {C_SURFACE});
+    border: none;
+    border-bottom: 1px solid {C_BORDER};
+    border-radius: 0px;
+}}
+QFrame#logFrame {{
     background-color: {C_SURFACE};
     border: 1px solid {C_BORDER};
-    border-radius: 12px;
+    border-radius: 14px;
 }}
+
+/* ── Buttons — Base ── */
 QPushButton {{
-    background-color: {C_SURFACE};
+    background-color: {C_ELEVATED};
     color: {C_TEXT};
     border: 1px solid {C_BORDER2};
-    border-radius: 8px;
-    padding: 6px 14px;
+    border-radius: 9px;
+    padding: 7px 16px;
     font-weight: 600;
     font-size: 12px;
+    min-height: 20px;
 }}
 QPushButton:hover {{
-    background-color: #1f2937;
-    border-color: {C_ACCENT};
+    background-color: {C_CARD};
+    border-color: {C_BORDER3};
     color: {C_ACCENT2};
 }}
 QPushButton:pressed {{
-    background-color: #111827;
+    background-color: {C_BG};
+    border-color: {C_ACCENT};
 }}
+QPushButton:disabled {{
+    background-color: {C_SURFACE};
+    color: {C_MUTED};
+    border-color: {C_BORDER};
+}}
+
+/* ── Buttons — Named variants ── */
 QPushButton#btnPrimary {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #0369a1);
-    border: 1px solid #38bdf8;
-    color: white;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #0369a1, stop:1 #0284c7);
+    border: 1px solid {C_ACCENT};
+    color: #f0f9ff;
+    font-weight: 700;
 }}
 QPushButton#btnPrimary:hover {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0369a1, stop:1 #075985);
-}}
-QPushButton#btnSuccess {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #15803d, stop:1 #16a34a);
-    border: 1px solid {C_GREEN};
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #0284c7, stop:1 {C_ACCENT});
+    border-color: {C_ACCENT2};
     color: white;
 }}
+QPushButton#btnSuccess {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #065f46, stop:1 #047857);
+    border: 1px solid {C_GREEN};
+    color: #ecfdf5;
+    font-weight: 700;
+}}
 QPushButton#btnSuccess:hover {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #166534, stop:1 #15803d);
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #047857, stop:1 #059669);
+    color: white;
 }}
 QPushButton#btnDanger {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #b91c1c, stop:1 #dc2626);
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #7f1d1d, stop:1 #991b1b);
     border: 1px solid {C_RED};
+    color: #fef2f2;
+    font-weight: 700;
+}}
+QPushButton#btnDanger:hover {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #991b1b, stop:1 #dc2626);
     color: white;
 }}
 QPushButton#btnWarn {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #b45309, stop:1 #d97706);
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #78350f, stop:1 #92400e);
     border: 1px solid {C_YELLOW};
+    color: #fffbeb;
+    font-weight: 700;
+}}
+QPushButton#btnWarn:hover {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #92400e, stop:1 #b45309);
     color: white;
 }}
 QPushButton#btnSmall {{
-    padding: 4px 10px;
+    padding: 5px 12px;
     font-size: 11px;
-    border-radius: 6px;
+    border-radius: 7px;
+    min-height: 16px;
+    font-weight: 700;
 }}
 QPushButton#btnIcon {{
     padding: 5px 8px;
     font-size: 13px;
-    border-radius: 8px;
+    border-radius: 9px;
     min-width: 32px;
     max-width: 32px;
+    min-height: 32px;
 }}
+
+/* ── Text Areas ── */
 QTextEdit, QListWidget {{
     background-color: {C_BG};
-    border: none;
-    border-radius: 8px;
-    color: #9ca3af;
-    font-family: 'Cascadia Code', 'Consolas', monospace;
+    border: 1px solid {C_BORDER};
+    border-radius: 9px;
+    color: {C_TEXT2};
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
     font-size: 11px;
-    padding: 6px;
+    padding: 8px;
+    selection-background-color: {C_ACCENT3};
 }}
+QTextEdit:focus, QListWidget:focus {{
+    border-color: {C_BORDER2};
+}}
+
+/* ── LineEdit ── */
+QLineEdit {{
+    background-color: {C_CARD};
+    border: 1px solid {C_BORDER2};
+    border-radius: 9px;
+    color: {C_TEXT};
+    padding: 8px 13px;
+    font-size: 12px;
+    selection-background-color: {C_ACCENT3};
+}}
+QLineEdit:focus {{
+    border-color: {C_ACCENT};
+    background-color: {C_ELEVATED};
+}}
+QLineEdit:hover {{
+    border-color: {C_BORDER3};
+}}
+
+/* ── ComboBox ── */
+QComboBox {{
+    background-color: {C_CARD};
+    border: 1px solid {C_BORDER2};
+    border-radius: 9px;
+    color: {C_TEXT};
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    min-height: 22px;
+}}
+QComboBox:hover {{
+    border-color: {C_BORDER3};
+}}
+QComboBox:focus {{
+    border-color: {C_ACCENT};
+}}
+QComboBox::drop-down {{
+    border: none;
+    padding-right: 10px;
+}}
+QComboBox QAbstractItemView {{
+    background-color: {C_ELEVATED};
+    border: 1px solid {C_BORDER2};
+    border-radius: 9px;
+    color: {C_TEXT};
+    selection-background-color: {C_ACCENT3};
+    padding: 4px;
+    outline: none;
+}}
+
+/* ── ScrollBars ── */
 QScrollBar:vertical {{
     border: none;
-    background: {C_SURFACE};
-    width: 6px;
+    background: transparent;
+    width: 5px;
     border-radius: 3px;
+    margin: 2px 0;
 }}
 QScrollBar::handle:vertical {{
     background: {C_BORDER2};
     border-radius: 3px;
+    min-height: 28px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background: {C_BORDER3};
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 0px;
 }}
 QScrollBar:horizontal {{
     border: none;
-    background: {C_SURFACE};
-    height: 6px;
+    background: transparent;
+    height: 5px;
     border-radius: 3px;
+    margin: 0 2px;
 }}
 QScrollBar::handle:horizontal {{
     background: {C_BORDER2};
     border-radius: 3px;
+    min-width: 28px;
 }}
+QScrollBar::handle:horizontal:hover {{
+    background: {C_BORDER3};
+}}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+    width: 0px;
+}}
+
+/* ── CheckBox ── */
 QCheckBox {{
     font-size: 12px;
-    color: {C_MUTED};
-    spacing: 6px;
+    color: {C_TEXT2};
+    spacing: 7px;
+    font-weight: 500;
+}}
+QCheckBox:hover {{
+    color: {C_TEXT};
 }}
 QCheckBox::indicator {{
-    width: 15px;
-    height: 15px;
-    border-radius: 4px;
+    width: 16px;
+    height: 16px;
+    border-radius: 5px;
     border: 1px solid {C_BORDER2};
     background-color: {C_SURFACE};
 }}
+QCheckBox::indicator:hover {{
+    border-color: {C_ACCENT};
+    background-color: {C_CARD};
+}}
 QCheckBox::indicator:checked {{
+    background-color: {C_ACCENT3};
+    border-color: {C_ACCENT};
+}}
+QCheckBox::indicator:checked:hover {{
     background-color: {C_ACCENT};
-    border-color: {C_ACCENT2};
+}}
+
+/* ── RadioButton ── */
+QRadioButton {{
+    font-size: 12px;
+    color: {C_TEXT2};
+    spacing: 7px;
+}}
+QRadioButton:hover {{
+    color: {C_TEXT};
+}}
+QRadioButton::indicator {{
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    border: 1px solid {C_BORDER2};
+    background-color: {C_SURFACE};
+}}
+QRadioButton::indicator:checked {{
+    background-color: {C_ACCENT3};
+    border-color: {C_ACCENT};
+}}
+QRadioButton::indicator:hover {{
+    border-color: {C_ACCENT};
+}}
+
+/* ── ProgressBar ── */
+QProgressBar {{
+    background: {C_CARD};
+    border: none;
+    border-radius: 4px;
+}}
+QProgressBar::chunk {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 {C_ACCENT3}, stop:1 {C_ACCENT});
+    border-radius: 4px;
+}}
+
+/* ── Tooltip ── */
+QToolTip {{
+    background-color: {C_ELEVATED};
+    color: {C_TEXT};
+    border: 1px solid {C_BORDER2};
+    border-radius: 7px;
+    padding: 6px 10px;
+    font-size: 11px;
+}}
+
+/* ── Context Menus ── */
+QMenu {{
+    background-color: {C_ELEVATED};
+    border: 1px solid {C_BORDER2};
+    border-radius: 12px;
+    padding: 6px 4px;
+    color: {C_TEXT};
+}}
+QMenu::item {{
+    padding: 8px 22px;
+    border-radius: 7px;
+    margin: 1px 4px;
+}}
+QMenu::item:selected {{
+    background-color: {C_ACCENT3};
+    color: white;
+}}
+QMenu::separator {{
+    height: 1px;
+    background: {C_BORDER};
+    margin: 4px 12px;
+}}
+
+/* ── MessageBox ── */
+QMessageBox {{
+    background-color: {C_SURFACE};
+}}
+QMessageBox QLabel {{
+    color: {C_TEXT};
+    font-size: 12px;
 }}
 """
 
 def make_separator():
     sep = QFrame()
     sep.setFrameShape(QFrame.HLine)
-    sep.setStyleSheet(f"color:{C_BORDER}; background:{C_BORDER}; max-height:1px;")
+    sep.setFixedHeight(1)
+    sep.setStyleSheet(
+        f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+        f"stop:0 transparent, stop:0.25 {C_BORDER2}, stop:0.75 {C_BORDER2}, stop:1 transparent);"
+        f"border:none;"
+    )
     return sep
+
 
 # ─── Modals ──────────────────────────────────────────────────────────────────
 
@@ -442,10 +674,11 @@ class HistoryModal(QDialog):
         for entry in filtered:
             card_row = QFrame()
             card_row.setStyleSheet(
-                f"QFrame {{ background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 10px; padding: 10px; }} "
-                f"QFrame:hover {{ border-color: {C_BORDER2}; background: #131b26; }}"
+                f"QFrame {{ background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 12px; padding: 10px; }} "
+                f"QFrame:hover {{ border-color: {C_BORDER3}; background: {C_ELEVATED}; }}"
             )
             rv = QVBoxLayout(card_row)
+
             rv.setContentsMargins(12, 10, 12, 10)
             rv.setSpacing(8)
 
@@ -607,28 +840,29 @@ class FleetStatsModal(QDialog):
 
         def make_metric(icon_str, title_str, val_str, color_str):
             f = QFrame()
-            f.setStyleSheet(f"background:{C_SURFACE}; border:1px solid {C_BORDER}; border-radius:12px; padding:12px;")
+            f.setStyleSheet(f"background:{C_ELEVATED}; border:1px solid {C_BORDER}; border-radius:12px; padding:12px;")
             vl = QVBoxLayout(f)
             vl.setSpacing(4)
             hl = QHBoxLayout()
             lbl_i = QLabel(icon_str)
             lbl_i.setStyleSheet("font-size:18px;")
             lbl_t = QLabel(title_str)
-            lbl_t.setStyleSheet(f"font-size:11px; color:{C_MUTED}; font-weight:600;")
+            lbl_t.setStyleSheet(f"font-size:11px; color:{C_TEXT2}; font-weight:600;")
             hl.addWidget(lbl_i)
             hl.addWidget(lbl_t)
             hl.addStretch()
             lbl_v = QLabel(val_str)
-            lbl_v.setStyleSheet(f"font-size:18px; font-weight:800; color:{color_str};")
+            lbl_v.setStyleSheet(f"font-size:19px; font-weight:800; color:{color_str};")
             vl.addLayout(hl)
             vl.addWidget(lbl_v)
             return f
 
-        metrics_row.addWidget(make_metric("🃏", "Total Cartes", f"{total_cards_fleet:,}".replace(",", " "), "#22c55e"))
+        metrics_row.addWidget(make_metric("🃏", "Total Cartes", f"{total_cards_fleet:,}".replace(",", " "), "#34d399"))
         metrics_row.addWidget(make_metric("📦", "Total Paquets", f"{total_packs_fleet:,}".replace(",", " "), "#fbbf24"))
-        metrics_row.addWidget(make_metric("⭐", "Rares & Supérieures", f"{total_rares_plus:,}".replace(",", " "), "#a855f7"))
+        metrics_row.addWidget(make_metric("⭐", "Rares & Supérieures", f"{total_rares_plus:,}".replace(",", " "), "#a78bfa"))
         metrics_row.addWidget(make_metric("👥", "Comptes Déployés", f"{len(accounts)} compte(s)", "#38bdf8"))
         layout.addLayout(metrics_row)
+
 
         # ── Répartition des Raretés dans la Flotte ──
         rarity_box = QFrame()
@@ -1048,10 +1282,11 @@ class TopCardsModal(QDialog):
         for idx, card in enumerate(cards):
             c_row = QFrame()
             c_row.setStyleSheet(
-                f"QFrame {{ background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 10px; }} "
-                f"QFrame:hover {{ border-color: {C_BORDER2}; background: #131b26; }}"
+                f"QFrame {{ background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 12px; }} "
+                f"QFrame:hover {{ border-color: {C_BORDER3}; background: {C_ELEVATED}; }}"
             )
             rh = QHBoxLayout(c_row)
+
             rh.setContentsMargins(14, 10, 14, 10)
             rh.setSpacing(14)
 
@@ -2421,7 +2656,7 @@ class GuildSyncWorker(QThread):
 class DonutTimer(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(94, 94)
+        self.setFixedSize(100, 100)
         self._value = 0
         self._max   = 600
         self._text  = "--:--"
@@ -2454,26 +2689,30 @@ class DonutTimer(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
-        margin = 7
+        margin = 8
         rect = QRect(margin, margin, w - 2 * margin, h - 2 * margin)
 
-        pen_track = QPen(QColor(C_BORDER2), 7, Qt.SolidLine, Qt.RoundCap)
+        # Track (background ring)
+        pen_track = QPen(QColor(C_BORDER2), 8, Qt.SolidLine, Qt.RoundCap)
         painter.setPen(pen_track)
         painter.drawEllipse(rect)
 
+        # Progress arc
         if self._active and self._max > 0:
             elapsed = self._max - self._value
             span = int(360 * 16 * elapsed / self._max)
-            pen_arc = QPen(self._color, 7, Qt.SolidLine, Qt.RoundCap)
+            pen_arc = QPen(self._color, 8, Qt.SolidLine, Qt.RoundCap)
             painter.setPen(pen_arc)
             painter.drawArc(rect, 90 * 16, -span)
 
+        # Center text
         painter.setPen(QColor(self._color))
-        f = QFont("Segoe UI", 12, QFont.Bold)
+        f = QFont("Segoe UI", 13, QFont.Bold)
         if len(self._text) <= 2:
-            f.setPointSize(16)
+            f.setPointSize(17)
         painter.setFont(f)
         painter.drawText(rect, Qt.AlignCenter, self._text)
+
 
 class ClickableFrame(QFrame):
     clicked = Signal()
@@ -2488,21 +2727,21 @@ class ClickableFrame(QFrame):
 class AddAccountCard(ClickableFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(160)
+        self.setFixedWidth(185)
         self.setStyleSheet(
-            f"QFrame {{ background: {C_SURFACE}; border: 2px dashed {C_BORDER2}; border-radius: 16px; }} "
-            f"QFrame:hover {{ border-color: {C_ACCENT}; background: #111d2e; }}"
+            f"QFrame {{ background: {C_SURFACE}; border: 2px dashed {C_BORDER2}; border-radius: 18px; }} "
+            f"QFrame:hover {{ border-color: {C_ACCENT}; background: {C_ELEVATED}; }}"
         )
         self.setCursor(Qt.PointingHandCursor)
         af_layout = QVBoxLayout(self)
         af_layout.setAlignment(Qt.AlignCenter)
-        af_layout.setSpacing(8)
+        af_layout.setSpacing(10)
 
         lbl_plus = QLabel("➕")
-        lbl_plus.setStyleSheet("font-size: 28px; border:none; background:transparent;")
+        lbl_plus.setStyleSheet("font-size: 30px; border:none; background:transparent;")
         lbl_plus.setAlignment(Qt.AlignCenter)
         lbl_txt = QLabel("Ajouter un\ncompte")
-        lbl_txt.setStyleSheet("font-size: 13px; font-weight: bold; color: #94a3b8; border:none; background:transparent;")
+        lbl_txt.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {C_ACCENT2}; border:none; background:transparent;")
         lbl_txt.setAlignment(Qt.AlignCenter)
 
         af_layout.addWidget(lbl_plus)
@@ -2542,15 +2781,15 @@ class AccountCard(QFrame):
         self.is_claiming     = False
         self.is_captcha_blocked = False
 
-        self.setFixedWidth(320)
+        self.setFixedWidth(340)
         self.setStyleSheet(
             f"QFrame#accountCard {{"
             f"  background: qlineargradient(x1:0,y1:0,x2:0,y2:1,{grad});"
             f"  border: 1px solid {C_BORDER};"
-            f"  border-radius: 16px;"
+            f"  border-radius: 18px;"
             f"}}"
             f"QFrame#accountCard:hover {{"
-            f"  border: 1px solid {accent}55;"
+            f"  border: 1px solid {accent}50;"
             f"}}"
         )
 
@@ -2563,8 +2802,8 @@ class AccountCard(QFrame):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 14, 15, 14)
-        layout.setSpacing(10)
+        layout.setContentsMargins(17, 15, 17, 15)
+        layout.setSpacing(11)
 
         # ── Header row ──────────────────────────────────────────────────────
         hrow = QHBoxLayout()
@@ -2638,17 +2877,17 @@ class AccountCard(QFrame):
 
         self.status_badge = QLabel("Non connecté")
         self.status_badge.setStyleSheet(
-            f"background:#78350f; color:#fde68a; padding:3px 9px; "
-            f"border-radius:999px; font-size:10px; font-weight:700;"
+            f"background:#451a03; color:#fde68a; border:1px solid #78350f; padding:3px 10px; "
+            f"border-radius:999px; font-size:10px; font-weight:700; letter-spacing:0.3px;"
         )
         hrow.addWidget(self.status_badge)
 
         btn_del = QPushButton("🗑️")
-        btn_del.setFixedSize(26, 26)
+        btn_del.setFixedSize(28, 28)
         btn_del.setToolTip(f"Supprimer le compte {self.title_text}")
         btn_del.setStyleSheet(
-            "QPushButton { background:#ef444418; border:1px solid #ef444440; border-radius:6px; color:#ef4444; font-size:12px; padding:0; } "
-            "QPushButton:hover { background:#ef4444; color:#ffffff; font-weight:bold; }"
+            "QPushButton { background:#ef444415; border:1px solid #ef444430; border-radius:7px; color:#ef4444; font-size:12px; padding:0; } "
+            "QPushButton:hover { background:#ef4444; color:#ffffff; font-weight:bold; border-color:#dc2626; }"
         )
         btn_del.clicked.connect(lambda: self.delete_requested.emit(self.account_id))
         hrow.addWidget(btn_del)
@@ -2658,7 +2897,7 @@ class AccountCard(QFrame):
 
         # ── Timer + Stats row ───────────────────────────────────────────────
         mid = QHBoxLayout()
-        mid.setSpacing(10)
+        mid.setSpacing(12)
 
         self.donut = DonutTimer()
         mid.addWidget(self.donut)
@@ -2667,10 +2906,10 @@ class AccountCard(QFrame):
         stats_col.setSpacing(5)
 
         self.lbl_stock = QLabel("📦  Stock : —")
-        self.lbl_stock.setStyleSheet(f"font-size:12px; font-weight:600; color:{self._accent};")
+        self.lbl_stock.setStyleSheet(f"font-size:12px; font-weight:700; color:{self._accent};")
 
         self.lbl_total = QLabel("🎴  Total : 0 paquet(s)")
-        self.lbl_total.setStyleSheet(f"font-size:11px; color:{C_MUTED};")
+        self.lbl_total.setStyleSheet(f"font-size:11px; color:{C_TEXT2};")
 
         self.lbl_collection = QLabel("🃏  Collection : —")
         self.lbl_collection.setStyleSheet(f"font-size:11px; font-weight:700; color:{C_TEXT};")
@@ -2696,8 +2935,8 @@ class AccountCard(QFrame):
         # ── Cartes obtenues / Top 10 Preview ───────────────────────────────
         self.lbl_cards = QLabel("🏆  Top 10 : En attente du premier tirage…")
         self.lbl_cards.setStyleSheet(
-            f"font-size:10px; color:{C_MUTED}; font-style:italic; padding:6px 8px;"
-            f"background:{C_SURFACE}; border-radius:8px; border:1px solid {C_BORDER};"
+            f"font-size:10px; color:{C_MUTED}; font-style:italic; padding:7px 10px;"
+            f"background:{C_SURFACE}; border-radius:9px; border:1px solid {C_BORDER};"
         )
         self.lbl_cards.setWordWrap(True)
         self.lbl_cards.setCursor(Qt.PointingHandCursor)
@@ -2707,15 +2946,16 @@ class AccountCard(QFrame):
 
         # ── Screenshot preview ─────────────────────────────────────────────
         self.preview_frame = ClickableFrame()
-        self.preview_frame.setFixedHeight(85)
+        self.preview_frame.setFixedHeight(92)
         self.preview_frame.setStyleSheet(
-            f"background:{C_BG}; border:1px dashed {C_BORDER}; border-radius:10px;"
+            f"QFrame {{ background:{C_CARD}; border:1px dashed {C_BORDER2}; border-radius:10px; }} "
+            f"QFrame:hover {{ border-color:{C_ACCENT}; background:{C_ELEVATED}; }}"
         )
         prev_layout = QVBoxLayout(self.preview_frame)
         prev_layout.setContentsMargins(4, 4, 4, 4)
         self.preview_img = QLabel("📷  Aperçu du tirage")
         self.preview_img.setAlignment(Qt.AlignCenter)
-        self.preview_img.setStyleSheet(f"color:{C_BORDER2}; font-size:10px; border:none; background:transparent;")
+        self.preview_img.setStyleSheet(f"color:{C_MUTED}; font-size:10px; border:none; background:transparent;")
         prev_layout.addWidget(self.preview_img)
         self.preview_frame.clicked.connect(self.open_large_preview)
         self.preview_frame.setCursor(Qt.PointingHandCursor)
@@ -2726,43 +2966,44 @@ class AccountCard(QFrame):
         opts_box.setSpacing(4)
 
         row_opts1 = QHBoxLayout()
-        row_opts1.setSpacing(10)
+        row_opts1.setSpacing(12)
         self.chk_auto_achievements = QCheckBox("🏆 Auto-succès")
         self.chk_auto_achievements.setChecked(acc.get("auto_achievements", True))
         self.chk_auto_achievements.setToolTip("Réclame automatiquement les succès débloqués et les Wikibidous associés")
-        self.chk_auto_achievements.setStyleSheet(f"QCheckBox {{ color: {C_TEXT}; font-size: 11px; font-weight: 600; }}")
+        self.chk_auto_achievements.setStyleSheet(f"QCheckBox {{ color: {C_TEXT2}; font-size: 11px; font-weight: 600; }}")
         self.chk_auto_achievements.toggled.connect(lambda v: engine.set_account_option(self.account_id, "auto_achievements", v))
 
         self.chk_auto_friends = QCheckBox("🤝 Auto-amis")
         self.chk_auto_friends.setChecked(acc.get("auto_friends", True))
         self.chk_auto_friends.setToolTip("Accepte automatiquement les demandes d'amis et interconnecte tous vos comptes")
-        self.chk_auto_friends.setStyleSheet(f"QCheckBox {{ color: {C_TEXT}; font-size: 11px; font-weight: 600; }}")
+        self.chk_auto_friends.setStyleSheet(f"QCheckBox {{ color: {C_TEXT2}; font-size: 11px; font-weight: 600; }}")
         self.chk_auto_friends.toggled.connect(lambda v: engine.set_account_option(self.account_id, "auto_friends", v))
         row_opts1.addWidget(self.chk_auto_achievements)
         row_opts1.addWidget(self.chk_auto_friends)
         row_opts1.addStretch()
 
         row_opts2 = QHBoxLayout()
-        row_opts2.setSpacing(10)
+        row_opts2.setSpacing(12)
         self.chk_auto_trades = QCheckBox("🔄 Auto-échanges")
         self.chk_auto_trades.setChecked(acc.get("auto_trades", True))
         self.chk_auto_trades.setToolTip("Accepte automatiquement tous les échanges entrants sans intervention")
-        self.chk_auto_trades.setStyleSheet(f"QCheckBox {{ color: {C_TEXT}; font-size: 11px; font-weight: 600; }}")
+        self.chk_auto_trades.setStyleSheet(f"QCheckBox {{ color: {C_TEXT2}; font-size: 11px; font-weight: 600; }}")
         self.chk_auto_trades.toggled.connect(lambda v: engine.set_account_option(self.account_id, "auto_trades", v))
         row_opts2.addWidget(self.chk_auto_trades)
         row_opts2.addStretch()
 
         opts_box.addLayout(row_opts1)
         opts_box.addLayout(row_opts2)
+        layout.addWidget(make_separator())
         layout.addLayout(opts_box)
 
         # ── Sélecteur et Lancement Multi-Navigateurs (1-Clic) ────────────────
         b_frame = QFrame()
         b_frame.setStyleSheet(
-            f"QFrame {{ background: #0b1329bb; border: 1px solid {C_BORDER}; border-radius: 10px; }}"
+            f"QFrame {{ background: {C_CARD}; border: 1px solid {C_BORDER}; border-radius: 12px; }}"
         )
         b_layout = QVBoxLayout(b_frame)
-        b_layout.setContentsMargins(8, 8, 8, 8)
+        b_layout.setContentsMargins(10, 8, 10, 8)
         b_layout.setSpacing(6)
 
         b_header = QHBoxLayout()
@@ -2824,9 +3065,9 @@ class AccountCard(QFrame):
 
         self.btn_transfer = QPushButton("🔄 Transférer")
         self.btn_transfer.setStyleSheet(
-            f"QPushButton {{ background:{C_SURFACE}; color:#a7f3d0; border:1px solid #059669; "
-            f"border-radius:8px; padding:6px 6px; font-size:11px; font-weight:700; }} "
-            f"QPushButton:hover {{ background:#064e3b; border-color:#34d399; color:#ffffff; }}"
+            f"QPushButton {{ background: #064e3b33; color: #a7f3d0; border: 1px solid #05966966; "
+            f"border-radius: 8px; padding: 6px 4px; font-size: 11px; font-weight: 700; }} "
+            f"QPushButton:hover {{ background: #064e3b; border-color: #34d399; color: #ffffff; }}"
         )
         self.btn_transfer.setCursor(Qt.PointingHandCursor)
         self.btn_transfer.setToolTip(f"Transférer des cartes depuis {self.title_text} vers un autre compte")
@@ -2834,9 +3075,9 @@ class AccountCard(QFrame):
 
         self.btn_achieve = QPushButton("🏆 Succès")
         self.btn_achieve.setStyleSheet(
-            f"QPushButton {{ background:{C_SURFACE}; color:#fef08a; border:1px solid #ca8a04; "
-            f"border-radius:8px; padding:6px 6px; font-size:11px; font-weight:700; }} "
-            f"QPushButton:hover {{ background:#713f12; border-color:#eab308; color:#ffffff; }}"
+            f"QPushButton {{ background: #78350f33; color: #fef08a; border: 1px solid #ca8a0466; "
+            f"border-radius: 8px; padding: 6px 4px; font-size: 11px; font-weight: 700; }} "
+            f"QPushButton:hover {{ background: #713f12; border-color: #eab308; color: #ffffff; }}"
         )
         self.btn_achieve.setCursor(Qt.PointingHandCursor)
         self.btn_achieve.setToolTip(f"Réclamer manuellement les succès maintenant pour {self.title_text}")
@@ -2844,9 +3085,9 @@ class AccountCard(QFrame):
 
         self.btn_top_cards = QPushButton("⭐ Top 10")
         self.btn_top_cards.setStyleSheet(
-            f"QPushButton {{ background:{C_SURFACE}; color:#e0e7ff; border:1px solid #6366f1; "
-            f"border-radius:8px; padding:6px 6px; font-size:11px; font-weight:700; }} "
-            f"QPushButton:hover {{ background:#312e81; border-color:#818cf8; color:#ffffff; }}"
+            f"QPushButton {{ background: #312e8133; color: #e0e7ff; border: 1px solid #6366f166; "
+            f"border-radius: 8px; padding: 6px 4px; font-size: 11px; font-weight: 700; }} "
+            f"QPushButton:hover {{ background: #312e81; border-color: #818cf8; color: #ffffff; }}"
         )
         self.btn_top_cards.setCursor(Qt.PointingHandCursor)
         self.btn_top_cards.setToolTip("Afficher le classement des 10 meilleures cartes de ce compte")
@@ -2859,9 +3100,14 @@ class AccountCard(QFrame):
 
         # ── Action buttons ──────────────────────────────────────────────────
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(6)
+        btn_row.setSpacing(8)
 
         self.btn_setup = QPushButton("🔑  Connecter")
+        self.btn_setup.setStyleSheet(
+            f"QPushButton {{ background: {C_ELEVATED}; color: {C_TEXT}; border: 1px solid {C_BORDER2}; "
+            f"border-radius: 8px; padding: 7px 12px; font-size: 11px; font-weight: 700; }} "
+            f"QPushButton:hover {{ background: {C_CARD}; border-color: {C_ACCENT}; color: {C_ACCENT2}; }}"
+        )
         self.btn_setup.clicked.connect(self.on_setup_clicked)
         self.btn_setup.setToolTip(f"Ouvrir {b_display} pour connecter ou reconfigurer ce compte")
 
@@ -2876,7 +3122,7 @@ class AccountCard(QFrame):
         self.btn_refresh.clicked.connect(lambda: self.refresh_requested.emit(self.account_id))
 
         btn_row.addWidget(self.btn_setup)
-        btn_row.addWidget(self.btn_claim)
+        btn_row.addWidget(self.btn_claim, 1)
         btn_row.addWidget(self.btn_refresh)
         layout.addLayout(btn_row)
 
@@ -3119,14 +3365,14 @@ class AccountCard(QFrame):
     def set_status(self, text, bg, fg):
         self.status_badge.setText(text)
         self.status_badge.setStyleSheet(
-            f"background:{bg}; color:{fg}; padding:3px 9px; "
-            f"border-radius:999px; font-size:10px; font-weight:700;"
+            f"background:{bg}; color:{fg}; border:1px solid {fg}44; padding:3px 10px; "
+            f"border-radius:999px; font-size:10px; font-weight:700; letter-spacing:0.3px;"
         )
 
     def set_setting_up_mode(self, active=True):
         self.is_setting_up = active
         if active:
-            self.set_status("🔄  Config…", "#1e3a5f", "#93c5fd")
+            self.set_status("🔄  Config…", "#0c2847", "#7dd3fc")
             self.btn_setup.setText("✅  J'ai fini")
             self.btn_setup.setObjectName("btnSuccess")
             self.btn_setup.style().unpolish(self.btn_setup)
@@ -3145,13 +3391,13 @@ class AccountCard(QFrame):
         if is_main:
             self.btn_main_star.setToolTip("⭐ Compte Principal (Chef de Guilde)")
             self.btn_main_star.setStyleSheet(
-                "QPushButton { background: #78350f; border: 1px solid #f59e0b; color: #fbbf24; font-size: 11px; border-radius: 4px; padding: 0px; font-weight: 800; } "
+                "QPushButton { background: #78350f; border: 1px solid #f59e0b; color: #fbbf24; font-size: 11px; border-radius: 6px; padding: 0px; font-weight: 800; } "
                 "QPushButton:hover { background: #b45309; color: #fef08a; }"
             )
         else:
             self.btn_main_star.setToolTip(f"Cliquer pour définir {self.title_text} comme Compte Principal (Chef de Guilde)")
             self.btn_main_star.setStyleSheet(
-                "QPushButton { background: transparent; border: 1px solid transparent; color: #4b5563; font-size: 11px; border-radius: 4px; padding: 0px; } "
+                "QPushButton { background: transparent; border: 1px solid transparent; color: #4b5563; font-size: 11px; border-radius: 6px; padding: 0px; } "
                 "QPushButton:hover { background: #1f2937; color: #fbbf24; border-color: #d97706; }"
             )
 
@@ -3159,7 +3405,7 @@ class AccountCard(QFrame):
         is_conf = engine.is_account_configured(self.account_id)
         if is_conf:
             self.is_connected = True
-            self.set_status("✅  Prêt", "#14532d", "#86efac")
+            self.set_status("✅  Prêt", "#06371e", "#6ee7b7")
             self.btn_setup.setText("🔄  Reconnecter")
             self.sub_lbl.setText("Prochain paquet dans :")
         else:
@@ -3167,7 +3413,7 @@ class AccountCard(QFrame):
             self.remaining_seconds = 0
             self.donut.set_idle()
             self.sub_lbl.setText("Non connecté — cliquez sur Connecter")
-            self.set_status("●  Non connecté", "#451a03", "#fde68a")
+            self.set_status("●  Non connecté", "#3f1c04", "#fcd34d")
             self.btn_setup.setText("🔑  Connecter")
 
     def tick_second(self):
@@ -3175,7 +3421,7 @@ class AccountCard(QFrame):
             self.remaining_seconds -= 1
             self.donut.set_countdown(self.remaining_seconds)
             if self.remaining_seconds == 0:
-                self.set_status("🎁  Prêt !", "#065f46", "#6ee7b7")
+                self.set_status("🎁  Prêt !", "#064e3b", "#a7f3d0")
                 self.sub_lbl.setText("Paquet disponible !")
                 self.donut.set_countdown(0)
 
@@ -3188,8 +3434,9 @@ class AccountCard(QFrame):
     def set_claiming_state(self):
         self.is_claiming = True
         self.donut.set_claiming()
-        self.set_status("⟳  En cours…", "#1e3a5f", "#93c5fd")
+        self.set_status("⟳  En cours…", "#0c2847", "#7dd3fc")
         self.sub_lbl.setText("Ouverture des paquets…")
+
 
     def update_pack_data(self, stock=None, cards=None, shot_path=None, packs_opened=0, rarity_summary=""):
         if stock is not None:
@@ -3294,19 +3541,19 @@ class MainWindow(QMainWindow):
         # ── Top header bar ────────────────────────────────────────────────
         header_frame = QFrame()
         header_frame.setObjectName("headerFrame")
-        header_frame.setFixedHeight(62)
+        header_frame.setFixedHeight(58)
         hh = QHBoxLayout(header_frame)
         hh.setContentsMargins(20, 0, 20, 0)
-        hh.setSpacing(12)
+        hh.setSpacing(10)
 
         logo = QLabel("🎴")
-        logo.setStyleSheet("font-size:22px;")
+        logo.setStyleSheet("font-size:24px;")
         app_title = QLabel("WikiMasters Auto-Claimer")
-        app_title.setStyleSheet(f"font-size:16px; font-weight:800; color:{C_TEXT}; letter-spacing:0.5px;")
+        app_title.setStyleSheet(f"font-size:15px; font-weight:800; color:{C_TEXT}; letter-spacing:0.4px;")
         app_sub = QLabel("100% Google Chrome · Multi-Comptes Furtif")
-        app_sub.setStyleSheet(f"font-size:10px; color:{C_MUTED};")
+        app_sub.setStyleSheet(f"font-size:10px; color:{C_ACCENT2}; font-weight:600;")
         title_col = QVBoxLayout()
-        title_col.setSpacing(0)
+        title_col.setSpacing(1)
         title_col.addWidget(app_title)
         title_col.addWidget(app_sub)
 
@@ -3316,8 +3563,8 @@ class MainWindow(QMainWindow):
 
         self.stealth_badge = QLabel("🛡  STEALTH")
         self.stealth_badge.setStyleSheet(
-            f"background:#052e16; color:#4ade80; border:1px solid #166534; "
-            f"padding:4px 12px; border-radius:999px; font-size:10px; font-weight:700; letter-spacing:1px;"
+            f"background:#052e1688; color:#4ade80; border:1px solid #166534; "
+            f"padding:4px 10px; border-radius:999px; font-size:10px; font-weight:700; letter-spacing:1px;"
         )
         hh.addWidget(self.stealth_badge)
 
@@ -3326,8 +3573,8 @@ class MainWindow(QMainWindow):
         self.btn_update.setObjectName("btnSmall")
         self.btn_update.setToolTip("Rechercher des mises à jour sur GitHub (vos comptes et cookies restent préservés)")
         self.btn_update.setStyleSheet(
-            "QPushButton { background:#1e293b; color:#38bdf8; border:1px solid #0284c7; font-weight:700; border-radius:6px; padding:4px 8px; } "
-            "QPushButton:hover { background:#0369a1; color:white; }"
+            f"QPushButton {{ background:#0c2847; color:{C_ACCENT}; border:1px solid #0284c7; font-weight:700; border-radius:7px; padding:4px 9px; }} "
+            f"QPushButton:hover {{ background:#0284c7; color:white; }}"
         )
         self.btn_update.clicked.connect(lambda: self.check_updates_gui(silent_if_none=False))
         hh.addWidget(self.btn_update)
@@ -3346,8 +3593,8 @@ class MainWindow(QMainWindow):
         btn_top10 = QPushButton("🏆  Top 10")
         btn_top10.setObjectName("btnSmall")
         btn_top10.setStyleSheet(
-            "QPushButton { background:#2e1065; color:#f3e8ff; border:1px solid #a855f7; font-weight:700; border-radius:6px; padding:4px 10px; } "
-            "QPushButton:hover { background:#4c1d95; color:white; }"
+            "QPushButton { background:#2e106544; color:#e9d5ff; border:1px solid #7c3aed66; font-weight:700; border-radius:7px; padding:4px 10px; } "
+            "QPushButton:hover { background:#7c3aed; color:white; border-color:#a855f7; }"
         )
         btn_top10.setToolTip("Consulter le Top 10 des cartes les plus rares conservées par compte")
         btn_top10.clicked.connect(self.open_top_cards)
@@ -3355,14 +3602,18 @@ class MainWindow(QMainWindow):
 
         btn_hist = QPushButton("📜  Historique")
         btn_hist.setObjectName("btnSmall")
+        btn_hist.setStyleSheet(
+            f"QPushButton {{ background:{C_ELEVATED}; color:{C_TEXT}; border:1px solid {C_BORDER2}; font-weight:600; border-radius:7px; padding:4px 10px; }} "
+            f"QPushButton:hover {{ background:{C_CARD}; border-color:{C_BORDER3}; color:{C_ACCENT2}; }}"
+        )
         btn_hist.clicked.connect(self.open_history)
         hh.addWidget(btn_hist)
 
         btn_fleet = QPushButton("📊  Flotte")
         btn_fleet.setObjectName("btnSmall")
         btn_fleet.setStyleSheet(
-            "QPushButton { background:#0c4a6e; color:#bae6fd; border:1px solid #0284c7; font-weight:700; border-radius:6px; padding:4px 10px; } "
-            "QPushButton:hover { background:#0369a1; color:white; }"
+            "QPushButton { background:#0c4a6e44; color:#bae6fd; border:1px solid #0284c766; font-weight:700; border-radius:7px; padding:4px 10px; } "
+            "QPushButton:hover { background:#0284c7; color:white; border-color:#38bdf8; }"
         )
         btn_fleet.setToolTip("Statistiques globales et répartition des raretés de la flotte")
         btn_fleet.clicked.connect(self.open_fleet_stats)
@@ -3371,8 +3622,8 @@ class MainWindow(QMainWindow):
         btn_discord = QPushButton("🔔  Discord")
         btn_discord.setObjectName("btnSmall")
         btn_discord.setStyleSheet(
-            "QPushButton { background:#1e1b4b; color:#c7d2fe; border:1px solid #6366f1; font-weight:700; border-radius:6px; padding:4px 10px; } "
-            "QPushButton:hover { background:#312e81; color:white; }"
+            "QPushButton { background:#1e1b4b44; color:#c7d2fe; border:1px solid #6366f166; font-weight:700; border-radius:7px; padding:4px 10px; } "
+            "QPushButton:hover { background:#4f46e5; color:white; border-color:#818cf8; }"
         )
         btn_discord.setToolTip("Configurer les alertes Discord Webhook (tirages rares, alertes)")
         btn_discord.clicked.connect(self.open_discord_settings)
@@ -3380,34 +3631,45 @@ class MainWindow(QMainWindow):
 
         btn_transfer = QPushButton("🎁  Dons / Transferts")
         btn_transfer.setObjectName("btnSmall")
-        btn_transfer.setStyleSheet("QPushButton { background:#064e3b; color:#a7f3d0; border:1px solid #059669; font-weight:700; border-radius:6px; padding:4px 10px; } QPushButton:hover { background:#047857; color:white; }")
+        btn_transfer.setStyleSheet(
+            "QPushButton { background:#064e3b44; color:#a7f3d0; border:1px solid #05966966; font-weight:700; border-radius:7px; padding:4px 10px; } "
+            "QPushButton:hover { background:#059669; color:white; border-color:#34d399; }"
+        )
         btn_transfer.setToolTip("Centraliser les dons de cartes vers un compte unique ou transférer par rareté")
         btn_transfer.clicked.connect(lambda: self.open_transfer_modal())
         hh.addWidget(btn_transfer)
 
         btn_friends = QPushButton("🤝  Amis")
         btn_friends.setObjectName("btnSmall")
-        btn_friends.setStyleSheet("QPushButton { background:#1e1b4b; color:#c7d2fe; border:1px solid #4338ca; font-weight:700; border-radius:6px; padding:4px 10px; } QPushButton:hover { background:#312e81; color:white; }")
+        btn_friends.setStyleSheet(
+            "QPushButton { background:#1e1b4b44; color:#c7d2fe; border:1px solid #4338ca66; font-weight:700; border-radius:7px; padding:4px 10px; } "
+            "QPushButton:hover { background:#4338ca; color:white; border-color:#818cf8; }"
+        )
         btn_friends.setToolTip("Synchroniser et interconnecter tous les comptes en amis")
         btn_friends.clicked.connect(self.sync_all_friends)
         hh.addWidget(btn_friends)
 
         btn_guild = QPushButton("🏰  Guilde")
         btn_guild.setObjectName("btnSmall")
-        btn_guild.setStyleSheet("QPushButton { background:#431407; color:#fed7aa; border:1px solid #c2410c; font-weight:700; border-radius:6px; padding:4px 10px; } QPushButton:hover { background:#7c2d12; color:white; }")
+        btn_guild.setStyleSheet(
+            "QPushButton { background:#43140744; color:#fed7aa; border:1px solid #c2410c66; font-weight:700; border-radius:7px; padding:4px 10px; } "
+            "QPushButton:hover { background:#c2410c; color:white; border-color:#fb923c; }"
+        )
         btn_guild.setToolTip("Gérer la guilde du compte principal et intégrer tous les comptes")
         btn_guild.clicked.connect(self.open_guild_modal)
         hh.addWidget(btn_guild)
 
         self.btn_toggle = QPushButton("⏸  Pause")
-        self.btn_toggle.setObjectName("btnPrimary")
         self.btn_toggle.setObjectName("btnSmall")
         self.btn_toggle.clicked.connect(self.toggle_loop)
         hh.addWidget(self.btn_toggle)
 
         btn_add = QPushButton("➕  Ajouter un compte")
         btn_add.setObjectName("btnSmall")
-        btn_add.setStyleSheet(f"background:#1e3a5f; border-color:#38bdf8; color:#e0f2fe; font-weight:700;")
+        btn_add.setStyleSheet(
+            "QPushButton { background:#07598533; border:1px solid #0284c7; color:#e0f2fe; font-weight:700; border-radius:7px; padding:4px 11px; } "
+            "QPushButton:hover { background:#0284c7; color:white; border-color:#38bdf8; }"
+        )
         btn_add.clicked.connect(self.prompt_add_account)
         hh.addWidget(btn_add)
 
@@ -3422,38 +3684,38 @@ class MainWindow(QMainWindow):
         # ── Stats bar ────────────────────────────────────────────────────
         stats_frame = QFrame()
         stats_frame.setObjectName("statsBar")
-        stats_frame.setFixedHeight(42)
+        stats_frame.setFixedHeight(44)
         stats_frame.setStyleSheet(
             f"QFrame#statsBar{{background:{C_SURFACE}; border-bottom:1px solid {C_BORDER}; border-radius:0px;}}"
         )
         sh = QHBoxLayout(stats_frame)
-        sh.setContentsMargins(22, 0, 22, 0)
-        sh.setSpacing(24)
+        sh.setContentsMargins(24, 0, 24, 0)
+        sh.setSpacing(20)
 
         self.lbl_total_packs = QLabel("📦  Total : 0 paquets ouverts")
-        self.lbl_total_packs.setStyleSheet(f"font-size:11px; font-weight:600; color:{C_YELLOW};")
+        self.lbl_total_packs.setStyleSheet(f"font-size:12px; font-weight:700; color:{C_YELLOW};")
         sh.addWidget(self.lbl_total_packs)
 
-        sep1 = QLabel("|")
-        sep1.setStyleSheet(f"color:{C_BORDER2};")
+        sep1 = QLabel("•")
+        sep1.setStyleSheet(f"color:{C_BORDER2}; font-size:14px;")
         sh.addWidget(sep1)
 
         self.lbl_total_cards = QLabel("🃏  Collection : —")
-        self.lbl_total_cards.setStyleSheet(f"font-size:11px; font-weight:600; color:{C_GREEN};")
+        self.lbl_total_cards.setStyleSheet(f"font-size:12px; font-weight:700; color:{C_GREEN};")
         sh.addWidget(self.lbl_total_cards)
 
-        sep2 = QLabel("|")
-        sep2.setStyleSheet(f"color:{C_BORDER2};")
+        sep2 = QLabel("•")
+        sep2.setStyleSheet(f"color:{C_BORDER2}; font-size:14px;")
         sh.addWidget(sep2)
 
         self.lbl_next_pull = QLabel("⏱  Prochain tirage : —")
-        self.lbl_next_pull.setStyleSheet(f"font-size:11px; font-weight:600; color:{C_ACCENT2};")
+        self.lbl_next_pull.setStyleSheet(f"font-size:12px; font-weight:700; color:{C_ACCENT2};")
         sh.addWidget(self.lbl_next_pull)
 
         sh.addStretch()
 
         self.lbl_status_bar = QLabel("Tous les comptes sont isolés et gérés par Google Chrome.")
-        self.lbl_status_bar.setStyleSheet(f"font-size:10px; color:{C_MUTED};")
+        self.lbl_status_bar.setStyleSheet(f"font-size:11px; color:{C_MUTED};")
         sh.addWidget(self.lbl_status_bar)
 
         root_layout.addWidget(stats_frame)
@@ -3467,7 +3729,7 @@ class MainWindow(QMainWindow):
         # Scroll Area pour les cartes de comptes
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFixedHeight(415)
+        scroll.setFixedHeight(440)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
@@ -3489,14 +3751,14 @@ class MainWindow(QMainWindow):
         log_frame = QFrame()
         log_frame.setObjectName("logFrame")
         log_vl = QVBoxLayout(log_frame)
-        log_vl.setContentsMargins(12, 10, 12, 10)
+        log_vl.setContentsMargins(14, 10, 14, 10)
         log_vl.setSpacing(6)
 
         log_header = QHBoxLayout()
         log_header.setSpacing(8)
 
         log_lbl = QLabel("◉  Journal d'activité")
-        log_lbl.setStyleSheet(f"font-size:11px; font-weight:700; color:{C_MUTED}; letter-spacing:0.5px;")
+        log_lbl.setStyleSheet(f"font-size:11px; font-weight:700; color:{C_TEXT2}; letter-spacing:0.5px;")
         log_header.addWidget(log_lbl)
         log_header.addStretch()
 
@@ -3522,7 +3784,7 @@ class MainWindow(QMainWindow):
 
         self.log_box = QTextEdit()
         self.log_box.setReadOnly(True)
-        self.log_box.setFixedHeight(130)
+        self.log_box.setFixedHeight(150)
         log_vl.addWidget(self.log_box)
 
         content_layout.addWidget(log_frame)
