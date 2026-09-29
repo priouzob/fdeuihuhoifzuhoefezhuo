@@ -1690,6 +1690,249 @@ class TransferCardsModal(QDialog):
         else:
             QMessageBox.warning(self, "Opération Incomplète", msg)
 
+class GuildModal(QDialog):
+    guild_synced = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("🏰 Gestion de Guilde — WikiMasters")
+        self.resize(760, 640)
+        self.setMinimumSize(680, 520)
+        self.setStyleSheet(DARK_STYLE + f"QDialog{{background:{C_BG};}}")
+
+        self.accounts = engine.get_accounts()
+        self.worker = None
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        # ── Header ──
+        h_layout = QHBoxLayout()
+        icon = QLabel("🏰")
+        icon.setStyleSheet("font-size: 28px;")
+        t_col = QVBoxLayout()
+        t_col.setSpacing(2)
+        title = QLabel("Guilde & Faction")
+        title.setStyleSheet("font-size: 17px; font-weight: 800; color: #fb923c;")
+        subtitle = QLabel("Invitez et intégrez automatiquement tous vos comptes dans la guilde de votre compte principal.")
+        subtitle.setStyleSheet(f"font-size: 11px; color: {C_MUTED};")
+        t_col.addWidget(title)
+        t_col.addWidget(subtitle)
+        h_layout.addWidget(icon)
+        h_layout.addLayout(t_col)
+        h_layout.addStretch()
+        layout.addLayout(h_layout)
+
+        layout.addWidget(make_separator())
+
+        # ── Choix du compte principal ──
+        main_box = QFrame()
+        main_box.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 12px; padding: 14px;")
+        mb_layout = QVBoxLayout(main_box)
+        mb_layout.setSpacing(10)
+
+        mb_row = QHBoxLayout()
+        lbl_main = QLabel("⭐  Compte Principal (Chef / Référent de Guilde) :")
+        lbl_main.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT};")
+        mb_row.addWidget(lbl_main)
+        mb_row.addStretch()
+
+        self.cb_main = QComboBox()
+        self.cb_main.setStyleSheet(f"QComboBox {{ background: {C_CARD}; border: 1px solid #fb923c; border-radius: 8px; padding: 6px 14px; color: {C_TEXT}; font-weight: 700; font-size: 12px; min-width: 220px; }}")
+
+        current_main_id = engine.get_main_account_id()
+        for a in self.accounts:
+            self.cb_main.addItem(f"👤 {a.get('name', a['id'])}", a["id"])
+
+        idx = self.cb_main.findData(current_main_id)
+        if idx >= 0:
+            self.cb_main.setCurrentIndex(idx)
+        self.cb_main.currentIndexChanged.connect(self.on_main_account_changed)
+        mb_row.addWidget(self.cb_main)
+        mb_layout.addLayout(mb_row)
+
+        info_lbl = QLabel("ℹ️  Le compte principal analyse sa guilde et envoie les invitations. Tous les comptes secondaires acceptent et rejoignent automatiquement !")
+        info_lbl.setStyleSheet(f"font-size: 11px; color: {C_MUTED}; font-style: italic;")
+        mb_layout.addWidget(info_lbl)
+        layout.addWidget(main_box)
+
+        # ── Liste des comptes et statuts ──
+        list_box = QFrame()
+        list_box.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 12px; padding: 12px;")
+        lb_layout = QVBoxLayout(list_box)
+        lb_layout.setSpacing(8)
+
+        lb_title = QLabel("👥  Membres de la Flotte :")
+        lb_title.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT};")
+        lb_layout.addWidget(lb_title)
+
+        self.accounts_scroll = QScrollArea()
+        self.accounts_scroll.setWidgetResizable(True)
+        self.accounts_scroll.setFixedHeight(120)
+        self.accounts_scroll.setStyleSheet(f"""
+            QScrollArea {{
+                background: {C_CARD};
+                border: 1px solid {C_BORDER2};
+                border-radius: 8px;
+            }}
+            QScrollBar:vertical {{
+                background: {C_CARD};
+                width: 8px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {C_BORDER2};
+                border-radius: 4px;
+            }}
+        """)
+        self.accounts_widget = QWidget()
+        self.accounts_widget.setStyleSheet(f"background: {C_CARD};")
+        self.accounts_layout = QVBoxLayout(self.accounts_widget)
+        self.accounts_layout.setContentsMargins(8, 8, 8, 8)
+        self.accounts_layout.setSpacing(6)
+        self.accounts_scroll.setWidget(self.accounts_widget)
+        lb_layout.addWidget(self.accounts_scroll)
+        layout.addWidget(list_box)
+
+        # ── Barre de progression & Logs ──
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFixedHeight(8)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet(f"QProgressBar {{ background: {C_CARD}; border-radius: 4px; }} QProgressBar::chunk {{ background: #fb923c; border-radius: 4px; }}")
+        layout.addWidget(self.progress_bar)
+
+        self.log_view = QTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setFixedHeight(110)
+        self.log_view.setStyleSheet(f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 8px; color: {C_TEXT}; font-family: Consolas, monospace; font-size: 11px; padding: 6px;")
+        layout.addWidget(self.log_view)
+
+        # ── Boutons bas ──
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(12)
+
+        self.btn_sync = QPushButton("🏰  Synchroniser la Guilde")
+        self.btn_sync.setObjectName("btnPrimary")
+        self.btn_sync.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #c2410c, stop:1 #9a3412);
+                border: 1px solid #fb923c;
+                color: white;
+                font-size: 13px;
+                font-weight: 800;
+                padding: 9px 22px;
+                border-radius: 8px;
+            }}
+            QPushButton:hover {{
+                background: #9a3412;
+            }}
+            QPushButton:disabled {{
+                background: #1f2937;
+                border-color: #374151;
+                color: #6b7280;
+            }}
+        """)
+        self.btn_sync.clicked.connect(self.start_sync)
+
+        self.btn_close = QPushButton("✕  Fermer")
+        self.btn_close.clicked.connect(self.accept)
+
+        btn_box.addStretch()
+        btn_box.addWidget(self.btn_sync)
+        btn_box.addWidget(self.btn_close)
+        layout.addLayout(btn_box)
+
+        self.refresh_accounts_view()
+
+    def on_main_account_changed(self):
+        new_main_id = self.cb_main.currentData()
+        if new_main_id:
+            engine.set_main_account_id(new_main_id)
+            self.refresh_accounts_view()
+
+    def refresh_accounts_view(self):
+        while self.accounts_layout.count():
+            item = self.accounts_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        main_id = self.cb_main.currentData()
+        for a in self.accounts:
+            aid = a["id"]
+            aname = a.get("name", aid)
+            row = QWidget()
+            row.setStyleSheet("background: transparent;")
+            rh = QHBoxLayout(row)
+            rh.setContentsMargins(4, 2, 4, 2)
+
+            is_main = (aid == main_id)
+            icon = "⭐" if is_main else "👤"
+            lbl_name = QLabel(f"{icon}  {aname}")
+            lbl_name.setStyleSheet(f"font-size: 12px; font-weight: {'800; color: #fbbf24;' if is_main else '600; color:' + C_TEXT + ';'}")
+
+            lbl_badge = QLabel("⭐ Compte Principal (Émetteur)" if is_main else "👥 Membre (Adhésion automatique)")
+            lbl_badge.setStyleSheet(
+                "font-size: 11px; font-weight: 700; color: " + ("#fbbf24;" if is_main else "#38bdf8;") +
+                " background: #0f172a; padding: 2px 8px; border-radius: 6px; border: 1px solid #1e293b;"
+            )
+
+            rh.addWidget(lbl_name)
+            rh.addStretch()
+            rh.addWidget(lbl_badge)
+            self.accounts_layout.addWidget(row)
+
+        self.accounts_layout.addStretch()
+        main_name = self.cb_main.currentText().replace("👤 ", "").strip()
+        self.btn_sync.setText(f"🏰  Intégrer tous les comptes à la guilde de {main_name}")
+
+    def log(self, text, level="info"):
+        color = "#10b981" if level == "success" else "#38bdf8" if level == "info" else "#f59e0b" if level == "warning" else "#ef4444"
+        ts = datetime.now().strftime("%H:%M:%S")
+        self.log_view.append(f"<span style='color:#6b7280;'>[{ts}]</span> <span style='color:{color};'>{text}</span>")
+        sb = self.log_view.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def start_sync(self):
+        main_id = self.cb_main.currentData()
+        main_name = self.cb_main.currentText().replace("👤 ", "").strip()
+
+        confirm = QMessageBox.question(
+            self, "Confirmer l'adhésion à la Guilde",
+            f"Voulez-vous inviter et faire rejoindre tous les comptes\n"
+            f"dans la guilde du compte principal '{main_name}' ?\n\n"
+            f"1. Le compte principal enverra les invitations.\n"
+            f"2. Chaque compte secondaire acceptera et rejoindra la guilde.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        self.btn_sync.setEnabled(False)
+        self.cb_main.setEnabled(False)
+        self.progress_bar.setRange(0, 0)
+        self.log(f"🏰 Lancement de la synchronisation vers la guilde de {main_name}...", "info")
+
+        self.worker = GuildSyncWorker(main_account_id=main_id)
+        self.worker.log_signal.connect(self.log)
+        self.worker.finished_signal.connect(self.on_sync_finished)
+        self.worker.start()
+
+    def on_sync_finished(self, ok, msg):
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(100 if ok else 0)
+        self.btn_sync.setEnabled(True)
+        self.cb_main.setEnabled(True)
+        self.guild_synced.emit()
+        if ok:
+            QMessageBox.information(self, "Guilde Synchronisée", msg)
+        else:
+            QMessageBox.warning(self, "Synchronisation Incomplète", msg)
+
 class AddAccountDialog(QDialog):
     def __init__(self, default_name="Compte", parent=None):
         super().__init__(parent)
@@ -1976,6 +2219,21 @@ class SyncFriendsWorker(QThread):
         )
         self.finished_signal.emit(self.account_id)
 
+class GuildSyncWorker(QThread):
+    log_signal = Signal(str, str)
+    finished_signal = Signal(bool, str)
+
+    def __init__(self, main_account_id=None):
+        super().__init__()
+        self.main_account_id = main_account_id
+
+    def run(self):
+        ok, msg = engine.sync_guild(
+            main_account_id=self.main_account_id,
+            status_callback=lambda text, level: self.log_signal.emit(text, level)
+        )
+        self.finished_signal.emit(ok, msg)
+
 
 # ─── Donut Timer ─────────────────────────────────────────────────────────────
 
@@ -2082,6 +2340,7 @@ class AccountCard(QFrame):
     transfer_requested = Signal(str)
     claim_achievements_requested = Signal(str)
     sync_friends_requested = Signal(str)
+    set_main_requested = Signal(str)
 
     def __init__(self, account_id, title, theme_idx=0, parent=None):
         super().__init__(parent)
@@ -2181,6 +2440,14 @@ class AccountCard(QFrame):
 
         title_row.addWidget(self.title_lbl)
         title_row.addWidget(btn_rename)
+
+        self.btn_main_star = QPushButton("⭐")
+        self.btn_main_star.setFixedSize(22, 22)
+        self.btn_main_star.setCursor(Qt.PointingHandCursor)
+        self.btn_main_star.clicked.connect(lambda: self.set_main_requested.emit(self.account_id))
+        title_row.addWidget(self.btn_main_star)
+        self.update_main_badge()
+
         title_row.addStretch()
 
         self.sub_lbl = QLabel(f"Profil {b_display}")
@@ -2535,6 +2802,23 @@ class AccountCard(QFrame):
             self.btn_setup.style().polish(self.btn_setup)
             self.update_configured_state()
 
+    def update_main_badge(self):
+        if not hasattr(self, "btn_main_star"):
+            return
+        is_main = (self.account_id == engine.get_main_account_id())
+        if is_main:
+            self.btn_main_star.setToolTip("⭐ Compte Principal (Chef de Guilde)")
+            self.btn_main_star.setStyleSheet(
+                "QPushButton { background: #78350f; border: 1px solid #f59e0b; color: #fbbf24; font-size: 11px; border-radius: 4px; padding: 0px; font-weight: 800; } "
+                "QPushButton:hover { background: #b45309; color: #fef08a; }"
+            )
+        else:
+            self.btn_main_star.setToolTip(f"Cliquer pour définir {self.title_text} comme Compte Principal (Chef de Guilde)")
+            self.btn_main_star.setStyleSheet(
+                "QPushButton { background: transparent; border: 1px solid transparent; color: #4b5563; font-size: 11px; border-radius: 4px; padding: 0px; } "
+                "QPushButton:hover { background: #1f2937; color: #fbbf24; border-color: #d97706; }"
+            )
+
     def update_configured_state(self):
         is_conf = engine.is_account_configured(self.account_id)
         if is_conf:
@@ -2772,6 +3056,13 @@ class MainWindow(QMainWindow):
         btn_friends.clicked.connect(self.sync_all_friends)
         hh.addWidget(btn_friends)
 
+        btn_guild = QPushButton("🏰  Guilde")
+        btn_guild.setObjectName("btnSmall")
+        btn_guild.setStyleSheet("QPushButton { background:#431407; color:#fed7aa; border:1px solid #c2410c; font-weight:700; border-radius:6px; padding:4px 10px; } QPushButton:hover { background:#7c2d12; color:white; }")
+        btn_guild.setToolTip("Gérer la guilde du compte principal et intégrer tous les comptes")
+        btn_guild.clicked.connect(self.open_guild_modal)
+        hh.addWidget(btn_guild)
+
         self.btn_toggle = QPushButton("⏸  Pause")
         self.btn_toggle.setObjectName("btnPrimary")
         self.btn_toggle.setObjectName("btnSmall")
@@ -2930,6 +3221,7 @@ class MainWindow(QMainWindow):
             card.transfer_requested.connect(self.open_transfer_modal)
             card.claim_achievements_requested.connect(self.claim_achievements_for_account)
             card.sync_friends_requested.connect(self.sync_friends_for_account)
+            card.set_main_requested.connect(self.handle_set_main_account)
             self.cards_layout.addWidget(card)
             self.account_cards[acc["id"]] = card
 
@@ -2937,6 +3229,19 @@ class MainWindow(QMainWindow):
         self.add_account_frame = AddAccountCard(self)
         self.add_account_frame.clicked.connect(self.prompt_add_account)
         self.cards_layout.addWidget(self.add_account_frame)
+
+    def handle_set_main_account(self, account_id):
+        engine.set_main_account_id(account_id)
+        for c in self.account_cards.values():
+            c.update_main_badge()
+        card = self.account_cards.get(account_id)
+        name = card.title_text if card else account_id
+        self.log(f"⭐ '{name}' est désormais le Compte Principal (Chef de Guilde).", "success")
+
+    def open_guild_modal(self):
+        dlg = GuildModal(parent=self)
+        dlg.guild_synced.connect(lambda: self.log("🏰 Statut de guilde actualisé.", "info"))
+        dlg.exec()
 
     def open_transfer_modal(self, source_account_id=None):
         dlg = TransferCardsModal(initial_source_id=source_account_id, parent=self)
@@ -3226,7 +3531,7 @@ class MainWindow(QMainWindow):
 
         ready = [
             acc_id for acc_id, card in self.account_cards.items()
-            if card.is_connected and card.remaining_seconds == 0 and not card.is_claiming and acc_id not in self.claim_workers
+            if card.is_connected and card.remaining_seconds == 0 and not card.is_claiming and acc_id not in self.claim_workers and not engine.is_account_busy(acc_id)
         ]
         if ready:
             self.trigger_claim_cycle(ready)
@@ -3255,7 +3560,7 @@ class MainWindow(QMainWindow):
 
         started_count = 0
         for aid in account_ids:
-            if aid in self.claim_workers:
+            if aid in self.claim_workers or engine.is_account_busy(aid):
                 continue
             card = self.account_cards.get(aid)
             if not card or not card.is_connected or card.is_setting_up or card.is_captcha_blocked:

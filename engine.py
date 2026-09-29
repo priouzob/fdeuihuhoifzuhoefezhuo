@@ -39,7 +39,24 @@ COLLECTION_STATS_FILE = BASE_DIR / "collection_stats.json"
 _file_io_lock = threading.RLock()
 _active_claim_accounts = set()
 _active_claim_accounts_lock = threading.Lock()
+_account_busy_set = set()
+_account_busy_lock = threading.RLock()
 _active_setup_proc = None
+
+def is_account_busy(account_id):
+    """Vérifie si un compte est actuellement en cours d'utilisation par un processus."""
+    with _account_busy_lock:
+        return account_id in _account_busy_set
+
+def mark_account_busy(account_id):
+    """Marque un compte comme étant en cours d'utilisation."""
+    with _account_busy_lock:
+        _account_busy_set.add(account_id)
+
+def unmark_account_busy(account_id):
+    """Libère un compte."""
+    with _account_busy_lock:
+        _account_busy_set.discard(account_id)
 
 def clean_profile_locks(browser_key):
     """Nettoie les fichiers de verrouillage résiduels (SingletonLock, lockfile) du profil Chrome."""
@@ -538,6 +555,26 @@ def get_account_info(account_id):
         "profile_dir": f"profiles/{account_id}",
         "enabled": True
     }
+
+def get_main_account_id():
+    """Récupère l'ID du compte principal défini dans la configuration (par défaut le premier)."""
+    config = load_config()
+    main_id = config.get("main_account_id")
+    accounts = get_accounts()
+    if main_id and any(a.get("id") == main_id for a in accounts):
+        return main_id
+    return accounts[0]["id"] if accounts else "compte_1"
+
+def set_main_account_id(account_id):
+    """Définit le compte principal dans la configuration."""
+    config = load_config()
+    config["main_account_id"] = account_id
+    save_config(config)
+
+def sync_guild(main_account_id=None, status_callback=None):
+    """Synchronise tous les comptes dans la guilde du compte principal."""
+    import guild
+    return guild.execute_guild_sync(main_account_id=main_account_id, status_callback=status_callback)
 
 def add_new_account(name=None, browser_type="chrome"):
     config = load_config()
@@ -1302,15 +1339,16 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
         }
 
     with _active_claim_accounts_lock:
-        if account_id in _active_claim_accounts:
-            safe_notify(status_callback, f"[{name}] Tirage déjà en cours pour ce compte.", "warning")
+        if account_id in _active_claim_accounts or is_account_busy(account_id):
+            safe_notify(status_callback, f"[{name}] Ce compte est déjà en cours d'opération.", "warning")
             return {
                 "status": "already_running",
                 "browser": name,
                 "browser_key": account_id,
-                "details": "Tirage déjà en cours."
+                "details": "Opération déjà en cours."
             }
         _active_claim_accounts.add(account_id)
+        mark_account_busy(account_id)
 
     try:
         safe_notify(status_callback, f"[{name}] Vérification furtive du compte...", "info")
@@ -1412,6 +1450,34 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                         if trade_res and trade_res.get("ok") and trade_res.get("accepted"):
                             acc_trades = trade_res["accepted"]
                             safe_notify(status_callback, f"[{name}] 🤝 {len(acc_trades)} échange(s) reçu(s) accepté(s) automatiquement !", "success")
+                    except Exception:
+                        pass
+
+                # 3. Synchronisation automatique de la guilde avec le compte principal
+                if acc.get("auto_guild", True):
+                    try:
+                        import guild
+                        main_id = get_main_account_id()
+                        if account_id == main_id:
+                            g_info = guild.get_account_guild_info(page)
+                            if g_info.get("in_guild") and g_info.get("guild_id"):
+                                cfg = load_config()
+                                if cfg.get("main_guild_id") != g_info["guild_id"]:
+                                    cfg["main_guild_id"] = g_info["guild_id"]
+                                    cfg["main_guild_name"] = g_info.get("guild_name", "")
+                                    save_config(cfg)
+                        else:
+                            cfg = load_config()
+                            target_gid = cfg.get("main_guild_id")
+                            if target_gid:
+                                curr_g = guild.get_account_guild_info(page)
+                                if not curr_g.get("in_guild") or curr_g.get("guild_id") != target_gid:
+                                    if curr_g.get("in_guild"):
+                                        guild.leave_guild(page)
+                                    join_res = guild.join_guild(page, target_gid)
+                                    if join_res.get("ok"):
+                                        g_name = cfg.get("main_guild_name", "principale")
+                                        safe_notify(status_callback, f"[{name}] 🏰 A rejoint automatiquement la guilde « {g_name} » !", "success")
                     except Exception:
                         pass
 
@@ -1707,6 +1773,7 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                     "details": str(e)
                 }
     finally:
+        unmark_account_busy(account_id)
         with _active_claim_accounts_lock:
             _active_claim_accounts.discard(account_id)
 

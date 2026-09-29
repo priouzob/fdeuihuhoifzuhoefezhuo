@@ -237,6 +237,7 @@ def execute_bulk_donation(source_account_ids, target_account_name, rarities, kee
     failed_sources = []
 
     for s_idx, source_id in enumerate(valid_sources, 1):
+        engine.mark_account_busy(source_id)
         source_acc = engine.get_account_info(source_id)
         source_name = source_acc.get("name", source_id)
         source_pdir = engine.BASE_DIR / source_acc.get("profile_dir", f"profiles/{source_id}")
@@ -342,9 +343,11 @@ def execute_bulk_donation(source_account_ids, target_account_name, rarities, kee
                     except Exception:
                         pass
                 engine.kill_browser_processes(source_id)
+                engine.unmark_account_busy(source_id)
 
     # 2. ÉTAPE 2 : Connexion au compte destinataire pour TOUT valider d'un coup
     if grand_total_transferred > 0:
+        engine.mark_account_busy(target_id)
         target_pdir = engine.BASE_DIR / target_acc.get("profile_dir", f"profiles/{target_id}")
         target_exe = engine.get_browser_executable_for_account(target_id)
 
@@ -389,6 +392,7 @@ def execute_bulk_donation(source_account_ids, target_account_name, rarities, kee
                     except Exception:
                         pass
                 engine.kill_browser_processes(target_id)
+                engine.unmark_account_busy(target_id)
 
     if grand_total_transferred > 0:
         summary_parts = [f"{name}: {cnt}" for name, cnt in accounts_donated]
