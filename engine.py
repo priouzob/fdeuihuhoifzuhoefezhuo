@@ -1448,52 +1448,6 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                             "details": "Session expirée. Veuillez vous reconnecter."
                         }
 
-                # 1. Interconnexion automatique des amis si activée (en tâche de fond sans quitter /pulls)
-                if acc.get("auto_friends", True):
-                    try:
-                        sync_account_friends(page, acc, config.get("accounts", []), status_callback)
-                    except Exception:
-                        pass
-
-                # 2. Auto-acceptation des échanges reçus entre comptes (en tâche de fond sans quitter /pulls)
-                if acc.get("auto_accept_trades", True):
-                    try:
-                        from transfer import accept_incoming_trades
-                        trade_res = accept_incoming_trades(page)
-                        if trade_res and trade_res.get("ok") and trade_res.get("accepted"):
-                            acc_trades = trade_res["accepted"]
-                            safe_notify(status_callback, f"[{name}] 🤝 {len(acc_trades)} échange(s) reçu(s) accepté(s) automatiquement !", "success")
-                    except Exception:
-                        pass
-
-                # 3. Synchronisation automatique de la guilde avec le compte principal
-                if acc.get("auto_guild", True):
-                    try:
-                        import guild
-                        main_id = get_main_account_id()
-                        if account_id == main_id:
-                            g_info = guild.get_account_guild_info(page)
-                            if g_info.get("in_guild") and g_info.get("guild_id"):
-                                cfg = load_config()
-                                if cfg.get("main_guild_id") != g_info["guild_id"]:
-                                    cfg["main_guild_id"] = g_info["guild_id"]
-                                    cfg["main_guild_name"] = g_info.get("guild_name", "")
-                                    save_config(cfg)
-                        else:
-                            cfg = load_config()
-                            target_gid = cfg.get("main_guild_id")
-                            if target_gid:
-                                curr_g = guild.get_account_guild_info(page)
-                                if not curr_g.get("in_guild") or curr_g.get("guild_id") != target_gid:
-                                    if curr_g.get("in_guild"):
-                                        guild.leave_guild(page)
-                                    join_res = guild.join_guild(page, target_gid)
-                                    if join_res.get("ok"):
-                                        g_name = cfg.get("main_guild_name", "principale")
-                                        safe_notify(status_callback, f"[{name}] 🏰 A rejoint automatiquement la guilde « {g_name} » !", "success")
-                    except Exception:
-                        pass
-
                 total_packs_opened = 0
                 all_pulled_cards = []
                 all_rarities = []
@@ -1501,7 +1455,7 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                 latest_screenshot = None
                 last_pack_rarity_summary = ""
 
-                # Boucle multi-passes : ouvre tous les paquets disponibles + paquets bonus de succès
+                # Boucle multi-passes : ouvre TOUS les paquets disponibles immédiatement en priorité
                 for pass_idx in range(4):
                     while True:
                         stock = extract_stock_count(page)
@@ -1536,9 +1490,12 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                                     o_retry.click()
 
                             # Vérifier si les cartes ou la flèche de navigation sont apparues
-                            has_pack_ui = page.locator(
-                                "button.w-12.h-12:not([disabled]), button:has-text('Continuer'), text=/Carte\\s*1\\s*\\/\\s*5/i"
-                            ).count() > 0
+                            has_pack_ui = (
+                                page.locator("button.w-12.h-12:not([disabled])").count() > 0 or
+                                page.locator("button:has-text('Continuer')").count() > 0 or
+                                page.locator("text='Carte 1 / 5'").count() > 0 or
+                                page.locator("text='Carte 1/5'").count() > 0
+                            )
 
                             if has_pack_ui:
                                 # Vérifier si le titre de la 1ère carte est lisible
@@ -1615,7 +1572,10 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                                     new_title, _ = extract_current_card_details(page)
                                     has_advanced = (new_title and new_title != previous_title)
                                     if not has_advanced:
-                                        counter_match = page.locator(f"text=/Carte\\s*{card_idx+2}\\s*\\/\\s*5/i").count() > 0
+                                        counter_match = (
+                                            page.locator(f"text='Carte {card_idx+2} / 5'").count() > 0 or
+                                            page.locator(f"text='Carte {card_idx+2}/5'").count() > 0
+                                        )
                                         if counter_match:
                                             has_advanced = True
                                     if has_advanced:
@@ -1646,7 +1606,11 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                                     close_start = time.time()
 
                             is_closed = page.locator("button:has-text('Ouvrir'), *:has-text('Prochain dans'), *:has-text('paquets disponibles')").count() > 0
-                            modal_open = page.locator("text=/Carte\\s*5\\s*\\/\\s*5/i, button:has-text('Continuer')").count() > 0
+                            modal_open = (
+                                page.locator("button:has-text('Continuer')").count() > 0 or
+                                page.locator("text='Carte 5 / 5'").count() > 0 or
+                                page.locator("text='Carte 5/5'").count() > 0
+                            )
                             if is_closed and not modal_open:
                                 break
                             time.sleep(0.08)
@@ -1708,7 +1672,51 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
 
                     break  # Aucun nouveau paquet débloqué, fin des passes
 
-                time.sleep(0.5)
+                # Synchronisation d'arrière-plan fluide (amis, échanges, guilde) après les tirages
+                if acc.get("auto_friends", True):
+                    try:
+                        sync_account_friends(page, acc, config.get("accounts", []), status_callback)
+                    except Exception:
+                        pass
+
+                if acc.get("auto_accept_trades", True):
+                    try:
+                        from transfer import accept_incoming_trades
+                        trade_res = accept_incoming_trades(page)
+                        if trade_res and trade_res.get("ok") and trade_res.get("accepted"):
+                            acc_trades = trade_res["accepted"]
+                            safe_notify(status_callback, f"[{name}] 🤝 {len(acc_trades)} échange(s) reçu(s) accepté(s) automatiquement !", "success")
+                    except Exception:
+                        pass
+
+                if acc.get("auto_guild", True):
+                    try:
+                        import guild
+                        main_id = get_main_account_id()
+                        if account_id == main_id:
+                            g_info = guild.get_account_guild_info(page)
+                            if g_info.get("in_guild") and g_info.get("guild_id"):
+                                cfg = load_config()
+                                if cfg.get("main_guild_id") != g_info["guild_id"]:
+                                    cfg["main_guild_id"] = g_info["guild_id"]
+                                    cfg["main_guild_name"] = g_info.get("guild_name", "")
+                                    save_config(cfg)
+                        else:
+                            cfg = load_config()
+                            target_gid = cfg.get("main_guild_id")
+                            if target_gid:
+                                curr_g = guild.get_account_guild_info(page)
+                                if not curr_g.get("in_guild") or curr_g.get("guild_id") != target_gid:
+                                    if curr_g.get("in_guild"):
+                                        guild.leave_guild(page)
+                                    join_res = guild.join_guild(page, target_gid)
+                                    if join_res.get("ok"):
+                                        g_name = cfg.get("main_guild_name", "principale")
+                                        safe_notify(status_callback, f"[{name}] 🏰 A rejoint automatiquement la guilde « {g_name} » !", "success")
+                    except Exception:
+                        pass
+
+                time.sleep(0.3)
                 final_stock = extract_stock_count(page)
                 timer_sec = extract_timer_seconds(page)
                 if timer_sec is None:

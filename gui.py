@@ -2252,7 +2252,7 @@ class SetupWorker(QThread):
         )
         self.finished_signal.emit(self.account_id, success, msg)
 
-_claim_concurrency_semaphore = threading.Semaphore(6)
+_claim_concurrency_semaphore = threading.Semaphore(12)
 
 class SingleAccountClaimWorker(QThread):
     log_signal = Signal(str, str)
@@ -3100,13 +3100,13 @@ class MainWindow(QMainWindow):
         self.clock_timer.timeout.connect(self.tick_clock)
         self.clock_timer.start(1000)
 
-        QTimer.singleShot(1500, self._initial_sync)
+        QTimer.singleShot(300, self._initial_sync)
         QTimer.singleShot(4000, lambda: self.check_updates_gui(silent_if_none=True))
 
     def _initial_sync(self):
         configured = [acc["id"] for acc in engine.get_accounts() if engine.is_account_configured(acc["id"])]
         if configured:
-            self.log(f"⚡  Synchronisation initiale simultanée ({len(configured)} compte(s) en parallèle)…", "info")
+            self.log(f"⚡  Démarrage simultané : Lancement immédiat de tous les comptes ({len(configured)}) en parallèle !", "info")
             self.trigger_claim_cycle(configured)
 
     def init_ui(self):
@@ -3694,7 +3694,29 @@ class MainWindow(QMainWindow):
             if card.is_connected and card.remaining_seconds == 0 and not card.is_claiming and acc_id not in self.claim_workers and not engine.is_account_busy(acc_id)
         ]
         if ready:
-            self.trigger_claim_cycle(ready)
+            # Synchronisation intelligente de flotte (Fleet Sync) :
+            # Si certains comptes sont prêts et que d'autres sont à ≤ 30s, attendre qu'ils s'alignent pour tirer ensemble
+            near_ready = [
+                acc_id for acc_id, card in self.account_cards.items()
+                if card.is_connected and 0 < card.remaining_seconds <= 30 and not card.is_claiming and acc_id not in self.claim_workers and not engine.is_account_busy(acc_id)
+            ]
+            if near_ready:
+                if not hasattr(self, "_fleet_sync_wait_ticks"):
+                    self._fleet_sync_wait_ticks = 0
+                self._fleet_sync_wait_ticks += 1
+                for zid in ready:
+                    zcard = self.account_cards.get(zid)
+                    if zcard and not zcard.is_claiming:
+                        zcard.sub_lbl.setText("⏱ Synchro de flotte…")
+
+                if self._fleet_sync_wait_ticks < 25:
+                    return
+                ready_to_launch = ready + near_ready
+                self._fleet_sync_wait_ticks = 0
+                self.trigger_claim_cycle(ready_to_launch)
+            else:
+                self._fleet_sync_wait_ticks = 0
+                self.trigger_claim_cycle(ready)
 
     def toggle_loop(self):
         self.is_running = not self.is_running
@@ -3739,7 +3761,7 @@ class MainWindow(QMainWindow):
             started_count += 1
 
         if started_count > 1:
-            self.log(f"⚡  {started_count} comptes lancés en simultané en parallèle !", "info")
+            self.log(f"⚡  Flotte synchronisée : {started_count} comptes lancés en simultané en direct !", "info")
 
     def _on_account_worker_finished(self, account_id):
         if account_id in self.claim_workers:
