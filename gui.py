@@ -16,6 +16,7 @@ import json
 import traceback
 from pathlib import Path
 from datetime import datetime
+import threading
 
 if sys.platform == "win32":
     try:
@@ -1573,26 +1574,74 @@ class SetupWorker(QThread):
         )
         self.finished_signal.emit(self.account_id, success, msg)
 
+_claim_concurrency_semaphore = threading.Semaphore(6)
+
+class SingleAccountClaimWorker(QThread):
+    log_signal = Signal(str, str)
+    pack_progress_signal = Signal(str, dict)
+    account_result_signal = Signal(str, dict)
+
+    def __init__(self, account_id):
+        super().__init__()
+        self.account_id = account_id
+
+    def run(self):
+        with _claim_concurrency_semaphore:
+            try:
+                res = engine.claim_account(
+                    self.account_id,
+                    headless=True,
+                    status_callback=lambda text, level: self.log_signal.emit(text, level),
+                    pack_callback=lambda pinfo: self.pack_progress_signal.emit(self.account_id, pinfo)
+                )
+            except Exception as e:
+                res = {
+                    "status": "error",
+                    "details": str(e),
+                    "browser": self.account_id,
+                    "browser_key": self.account_id
+                }
+        self.account_result_signal.emit(self.account_id, res)
+
 class BackgroundClaimWorker(QThread):
     log_signal = Signal(str, str)
     account_started_signal = Signal(str)
+    pack_progress_signal = Signal(str, dict)
     account_result_signal = Signal(str, dict)
     cycle_finished_signal = Signal()
 
-    def __init__(self, account_ids):
+    def __init__(self, account_ids, max_concurrency=6):
         super().__init__()
         self.account_ids = account_ids
+        self.max_concurrency = max_concurrency
 
     def run(self):
-        for acc_id in self.account_ids:
+        import concurrent.futures
+
+        def run_single(acc_id):
             self.account_started_signal.emit(acc_id)
-            res = engine.claim_account(
-                acc_id,
-                headless=True,
-                status_callback=lambda text, level: self.log_signal.emit(text, level)
-            )
+            try:
+                res = engine.claim_account(
+                    acc_id,
+                    headless=True,
+                    status_callback=lambda text, level: self.log_signal.emit(text, level),
+                    pack_callback=lambda pinfo: self.pack_progress_signal.emit(acc_id, pinfo)
+                )
+            except Exception as e:
+                res = {
+                    "status": "error",
+                    "details": str(e),
+                    "browser": acc_id,
+                    "browser_key": acc_id
+                }
             self.account_result_signal.emit(acc_id, res)
-            time.sleep(0.4)
+            return res
+
+        workers = min(len(self.account_ids), self.max_concurrency) if self.account_ids else 1
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(run_single, aid) for aid in self.account_ids]
+            concurrent.futures.wait(futures)
+
         self.cycle_finished_signal.emit()
 
 class TransferWorker(QThread):
@@ -2305,12 +2354,11 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(DARK_STYLE)
 
         self.is_running    = True
-        self.claim_worker  = None
+        self.claim_workers = {}
         self.setup_worker  = None
         self.sound_enabled = True
         self._tick_count   = 0
         self.account_cards = {}
-        self._pending_claim_queue = []
 
         self.init_ui()
 
@@ -2333,7 +2381,7 @@ class MainWindow(QMainWindow):
     def _initial_sync(self):
         configured = [acc["id"] for acc in engine.get_accounts() if engine.is_account_configured(acc["id"])]
         if configured:
-            self.log(f"🔍  Synchronisation initiale ({len(configured)} compte(s))…", "info")
+            self.log(f"⚡  Synchronisation initiale simultanée ({len(configured)} compte(s) en parallèle)…", "info")
             self.trigger_claim_cycle(configured)
 
     def init_ui(self):
@@ -2883,14 +2931,10 @@ class MainWindow(QMainWindow):
 
         ready = [
             acc_id for acc_id, card in self.account_cards.items()
-            if card.is_connected and card.remaining_seconds == 0 and not card.is_claiming and acc_id not in self._pending_claim_queue
+            if card.is_connected and card.remaining_seconds == 0 and not card.is_claiming and acc_id not in self.claim_workers
         ]
         if ready:
-            for k in ready:
-                card = self.account_cards.get(k)
-                if card and (self.claim_worker and self.claim_worker.isRunning()):
-                    card.sub_lbl.setText("En file d'attente…")
-            self.queue_claim(ready)
+            self.trigger_claim_cycle(ready)
 
     def toggle_loop(self):
         self.is_running = not self.is_running
@@ -2905,55 +2949,73 @@ class MainWindow(QMainWindow):
         self.btn_toggle.style().unpolish(self.btn_toggle)
         self.btn_toggle.style().polish(self.btn_toggle)
 
-    def queue_claim(self, account_ids=None):
+    def trigger_claim_cycle(self, account_ids=None):
+        if not self.is_running and account_ids is None:
+            return
         if account_ids is None:
             account_ids = [
                 acc["id"] for acc in engine.get_accounts()
                 if engine.is_account_configured(acc["id"])
             ]
+
+        started_count = 0
         for aid in account_ids:
-            if aid not in self._pending_claim_queue:
-                self._pending_claim_queue.append(aid)
-        self._process_claim_queue()
+            if aid in self.claim_workers:
+                continue
+            card = self.account_cards.get(aid)
+            if not card or not card.is_connected or card.is_setting_up or card.is_captcha_blocked:
+                continue
 
-    def _process_claim_queue(self):
-        if self.claim_worker and self.claim_worker.isRunning():
-            return
-        if not self._pending_claim_queue:
-            return
-
-        batch = list(self._pending_claim_queue)
-        self._pending_claim_queue.clear()
-
-        accounts_to_run = [aid for aid in batch if aid in self.account_cards]
-        if not accounts_to_run:
-            return
-
-        self.claim_worker = BackgroundClaimWorker(accounts_to_run)
-        self.claim_worker.log_signal.connect(self.log)
-        self.claim_worker.account_started_signal.connect(self.handle_account_started)
-        self.claim_worker.account_result_signal.connect(self.handle_account_result)
-        self.claim_worker.cycle_finished_signal.connect(self.handle_cycle_finished)
-        self.claim_worker.start()
-
-    def handle_account_started(self, account_id):
-        card = self.account_cards.get(account_id)
-        if card:
             card.is_claiming = True
             card.set_claiming_state()
 
-    def trigger_claim_cycle(self, account_ids=None):
-        self.queue_claim(account_ids)
+            worker = SingleAccountClaimWorker(aid)
+            worker.log_signal.connect(self.log)
+            worker.pack_progress_signal.connect(self.handle_pack_progress)
+            worker.account_result_signal.connect(self.handle_account_result)
+            worker.finished.connect(lambda a=aid: self._on_account_worker_finished(a))
+            self.claim_workers[aid] = worker
+            worker.start()
+            started_count += 1
 
-    def handle_cycle_finished(self):
-        for card in self.account_cards.values():
-            if not card.is_connected or card.remaining_seconds > 0:
-                card.is_claiming = False
+        if started_count > 1:
+            self.log(f"⚡  {started_count} comptes lancés en simultané en parallèle !", "info")
+
+    def _on_account_worker_finished(self, account_id):
+        if account_id in self.claim_workers:
+            del self.claim_workers[account_id]
+        if not self.claim_workers:
+            self.log("✓  Tous les tirages en cours sont terminés.", "success")
+            self.update_global_stats()
+
+    def handle_pack_progress(self, account_id, pinfo):
+        card = self.account_cards.get(account_id)
+        if not card:
+            return
+        stock = pinfo.get("stock")
+        shot = pinfo.get("screenshot")
+        rarity = pinfo.get("rarity_summary", "")
+        pack_num = pinfo.get("pack_num", 1)
+
+        # Mise à jour live du stock et de l'aperçu du paquet en cours
+        if stock is not None:
+            card.lbl_stock.setText(f"📦  Stock : {stock}")
+
+        card.total_claimed += 1
+        card.lbl_total.setText(f"🎴  Total : {card.total_claimed} paquet(s)")
+        card.lbl_last_time.setText(f"🕐  Dernier : {datetime.now().strftime('%H:%M:%S')}")
+
+        if rarity:
+            card.lbl_rarity.setText(f"⭐  {rarity}")
+
+        card.update_top_cards_preview()
+
+        if shot and os.path.exists(shot):
+            card._load_preview(shot)
+
+        card.set_status("⟳  En cours…", "#1e3a5f", "#93c5fd")
+        card.sub_lbl.setText(f"Paquet #{pack_num} ouvert…")
         self.update_global_stats()
-        if self._pending_claim_queue:
-            QTimer.singleShot(400, self._process_claim_queue)
-        else:
-            self.log("✓  Cycle terminé. En attente du prochain timer.", "success")
 
     def handle_account_result(self, account_id, res):
         card = self.account_cards.get(account_id)
@@ -2975,7 +3037,8 @@ class MainWindow(QMainWindow):
             card.set_status("🎉  Récupéré !", "#14532d", "#86efac")
             card.set_countdown(sec)
             card.update_pack_data(stock=stock, cards=cards, shot_path=shot,
-                                   packs_opened=opened, rarity_summary=rarity)
+                                   packs_opened=0, rarity_summary=rarity)
+            card.hydrate_from_history()
             card.sub_lbl.setText("Prochain paquet dans :")
             self.log(f"[{browser_name}] {details}", "success")
             self.play_chime()
@@ -3018,12 +3081,18 @@ class MainWindow(QMainWindow):
     def start_single_claim(self, account_id):
         card = self.account_cards.get(account_id)
         title = card.title_text if card else account_id
+        if account_id in self.claim_workers:
+            self.log(f"⚡  {title} est déjà en cours de tirage.", "warning")
+            return
         self.log(f"⚡  Tirage manuel : {title}…", "info")
         self.trigger_claim_cycle([account_id])
 
     def start_single_refresh(self, account_id):
         card = self.account_cards.get(account_id)
         title = card.title_text if card else account_id
+        if account_id in self.claim_workers:
+            self.log(f"↻  {title} est déjà en cours de synchronisation.", "warning")
+            return
         self.log(f"↻  Actualisation : {title}…", "info")
         self.trigger_claim_cycle([account_id])
 

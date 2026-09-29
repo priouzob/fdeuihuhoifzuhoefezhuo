@@ -13,6 +13,7 @@ import time
 import re
 import random
 import subprocess
+import threading
 from datetime import datetime
 from pathlib import Path
 from playwright.sync_api import sync_playwright
@@ -35,6 +36,7 @@ STATS_FILE = BASE_DIR / "stats.json"
 BEST_CARDS_FILE = BASE_DIR / "best_cards.json"
 COLLECTION_STATS_FILE = BASE_DIR / "collection_stats.json"
 
+_file_io_lock = threading.RLock()
 _active_setup_proc = None
 
 def clean_profile_locks(browser_key):
@@ -78,21 +80,23 @@ def kill_browser_processes(browser_key):
 
 def load_collection_stats():
     """Charge le cache des statistiques de collection de chaque compte."""
-    if COLLECTION_STATS_FILE.exists():
-        try:
-            with open(COLLECTION_STATS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
+    with _file_io_lock:
+        if COLLECTION_STATS_FILE.exists():
+            try:
+                with open(COLLECTION_STATS_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
 
 def save_collection_stats(stats_dict):
     """Sauvegarde le cache des statistiques de collection."""
-    try:
-        with open(COLLECTION_STATS_FILE, "w", encoding="utf-8") as f:
-            json.dump(stats_dict, f, indent=2, ensure_ascii=False)
-    except Exception:
-        pass
+    with _file_io_lock:
+        try:
+            with open(COLLECTION_STATS_FILE, "w", encoding="utf-8") as f:
+                json.dump(stats_dict, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
 
 def get_account_collection_stats(account_id):
     """Récupère les statistiques de cartes pour un compte spécifique."""
@@ -110,49 +114,52 @@ def extract_collection_stats(page, account_id):
             return null;
         }""")
         if data and "total" in data:
-            all_stats = load_collection_stats()
-            all_stats[account_id] = {
-                "total": data.get("total", 0),
-                "rarityCounts": data.get("rarityCounts", {}),
-                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            save_collection_stats(all_stats)
+            with _file_io_lock:
+                all_stats = load_collection_stats()
+                all_stats[account_id] = {
+                    "total": data.get("total", 0),
+                    "rarityCounts": data.get("rarityCounts", {}),
+                    "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                save_collection_stats(all_stats)
             return all_stats[account_id]
     except Exception:
         pass
     return None
 
 def load_lifetime_stats():
-    if STATS_FILE.exists():
+    with _file_io_lock:
+        if STATS_FILE.exists():
+            try:
+                with open(STATS_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        # Initialisation depuis history.json si stats.json n'existe pas encore
+        stats = {}
         try:
-            with open(STATS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+            history = load_history()
+            for entry in history:
+                b = entry.get("browser_key", "chrome")
+                if b not in stats:
+                    stats[b] = {"total_packs": 0}
+                stats[b]["total_packs"] = stats[b].get("total_packs", 0) + entry.get("packs_count", 1)
         except Exception:
             pass
-    # Initialisation depuis history.json si stats.json n'existe pas encore
-    stats = {}
-    try:
-        history = load_history()
-        for entry in history:
-            b = entry.get("browser_key", "chrome")
-            if b not in stats:
-                stats[b] = {"total_packs": 0}
-            stats[b]["total_packs"] = stats[b].get("total_packs", 0) + entry.get("packs_count", 1)
-    except Exception:
-        pass
-    return stats
+        return stats
 
 def update_lifetime_stats(browser_key, count=1):
-    try:
-        stats = load_lifetime_stats()
-        if browser_key not in stats:
-            stats[browser_key] = {"total_packs": 0}
-        stats[browser_key]["total_packs"] = stats[browser_key].get("total_packs", 0) + count
-        stats[browser_key]["last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(STATS_FILE, "w", encoding="utf-8") as f:
-            json.dump(stats, f, indent=2, ensure_ascii=False)
-    except Exception:
-        pass
+    with _file_io_lock:
+        try:
+            stats = load_lifetime_stats()
+            if browser_key not in stats:
+                stats[browser_key] = {"total_packs": 0}
+            stats[browser_key]["total_packs"] = stats[browser_key].get("total_packs", 0) + count
+            stats[browser_key]["last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(STATS_FILE, "w", encoding="utf-8") as f:
+                json.dump(stats, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
 
 # Dictionnaire et hiérarchie des raretés officielles WikiMasters
 RARITY_RANKS = {
@@ -230,35 +237,44 @@ def load_config():
         return json.load(f)
 
 def load_history():
-    if HISTORY_FILE.exists():
-        try:
-            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return []
+    with _file_io_lock:
+        if HISTORY_FILE.exists():
+            try:
+                with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return []
 
 def save_history(entry):
     try:
-        history = load_history()
-        history.insert(0, entry)
-        history = history[:500]
-        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(history, f, indent=2, ensure_ascii=False)
-        b_key = entry.get("browser_key")
-        packs = entry.get("packs_count", 1)
-        if b_key:
-            update_lifetime_stats(b_key, packs)
-            if entry.get("card_objects"):
-                register_pulled_cards(b_key, entry["card_objects"])
-            elif entry.get("cards") and entry.get("rarities"):
-                register_pulled_cards(
-                    b_key,
-                    entry["cards"],
-                    entry["rarities"],
-                    timestamp=entry.get("timestamp"),
-                    screenshot=entry.get("screenshot")
-                )
+        with _file_io_lock:
+            history = []
+            if HISTORY_FILE.exists():
+                try:
+                    with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                        history = json.load(f)
+                except Exception:
+                    pass
+            history.insert(0, entry)
+            history = history[:500]
+            with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                json.dump(history, f, indent=2, ensure_ascii=False)
+            
+            b_key = entry.get("browser_key")
+            packs = entry.get("packs_count", 1)
+            if b_key:
+                update_lifetime_stats(b_key, packs)
+                if entry.get("card_objects"):
+                    register_pulled_cards(b_key, entry["card_objects"])
+                elif entry.get("cards") and entry.get("rarities"):
+                    register_pulled_cards(
+                        b_key,
+                        entry["cards"],
+                        entry["rarities"],
+                        timestamp=entry.get("timestamp"),
+                        screenshot=entry.get("screenshot")
+                    )
     except Exception:
         pass
 
@@ -267,63 +283,65 @@ def load_best_cards():
     Charge les 10 meilleures cartes enregistrées par compte.
     Initialise automatiquement depuis l'historique complet si le fichier n'existe pas.
     """
-    if BEST_CARDS_FILE.exists():
+    with _file_io_lock:
+        if BEST_CARDS_FILE.exists():
+            try:
+                with open(BEST_CARDS_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+
+        # Initialisation intelligente depuis history.json
+        best_cards = {}
         try:
-            with open(BEST_CARDS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+            history = load_history()
+            # Parcourt du plus ancien au plus récent
+            for entry in reversed(history):
+                b_key = entry.get("browser_key")
+                if not b_key:
+                    continue
+                cards = entry.get("cards", [])
+                rarities = entry.get("rarities", [])
+                ts = entry.get("timestamp", "")
+                shot = entry.get("screenshot", "")
+                if b_key not in best_cards:
+                    best_cards[b_key] = []
+
+                for c_title, r_code in zip(cards, rarities):
+                    if not c_title:
+                        continue
+                    r_upper = str(r_code).upper().strip()
+                    if r_upper not in RARITY_RANKS:
+                        r_upper = "C"
+                    best_cards[b_key].append({
+                        "title": c_title,
+                        "rarity": r_upper,
+                        "timestamp": ts,
+                        "screenshot": shot
+                    })
+
+            # Tri et conservation stricte des 10 meilleures cartes
+            for b_key in list(best_cards.keys()):
+                best_cards[b_key].sort(
+                    key=lambda x: (RARITY_RANKS.get(x.get("rarity", "C"), 0), x.get("timestamp", "")),
+                    reverse=True
+                )
+                # Suppression automatique au-delà de 10
+                best_cards[b_key] = best_cards[b_key][:10]
+
+            save_best_cards(best_cards)
         except Exception:
             pass
 
-    # Initialisation intelligente depuis history.json
-    best_cards = {}
-    try:
-        history = load_history()
-        # Parcourt du plus ancien au plus récent
-        for entry in reversed(history):
-            b_key = entry.get("browser_key")
-            if not b_key:
-                continue
-            cards = entry.get("cards", [])
-            rarities = entry.get("rarities", [])
-            ts = entry.get("timestamp", "")
-            shot = entry.get("screenshot", "")
-            if b_key not in best_cards:
-                best_cards[b_key] = []
-
-            for c_title, r_code in zip(cards, rarities):
-                if not c_title:
-                    continue
-                r_upper = str(r_code).upper().strip()
-                if r_upper not in RARITY_RANKS:
-                    r_upper = "C"
-                best_cards[b_key].append({
-                    "title": c_title,
-                    "rarity": r_upper,
-                    "timestamp": ts,
-                    "screenshot": shot
-                })
-
-        # Tri et conservation stricte des 10 meilleures cartes
-        for b_key in list(best_cards.keys()):
-            best_cards[b_key].sort(
-                key=lambda x: (RARITY_RANKS.get(x.get("rarity", "C"), 0), x.get("timestamp", "")),
-                reverse=True
-            )
-            # Suppression automatique au-delà de 10
-            best_cards[b_key] = best_cards[b_key][:10]
-
-        save_best_cards(best_cards)
-    except Exception:
-        pass
-
-    return best_cards
+        return best_cards
 
 def save_best_cards(data):
-    try:
-        with open(BEST_CARDS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-    except Exception:
-        pass
+    with _file_io_lock:
+        try:
+            with open(BEST_CARDS_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
 
 def get_account_best_cards(account_id):
     """Renvoie les 10 meilleures cartes pour le compte donné."""
@@ -337,75 +355,77 @@ def register_pulled_cards(account_id, cards_list, rarities_list=None, timestamp=
     Dès qu'une nouvelle carte plus rare est tirée et qu'il y en a déjà 10,
     les cartes les moins rares sont automatiquement supprimées du classement.
     """
-    best_cards = load_best_cards()
-    if account_id not in best_cards:
-        best_cards[account_id] = []
+    with _file_io_lock:
+        best_cards = load_best_cards()
+        if account_id not in best_cards:
+            best_cards[account_id] = []
 
-    ts_default = timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    blacklist = {"ouvrir un paquet", "ouvrir", "paquet", "continuer", "carte", ""}
+        ts_default = timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        blacklist = {"ouvrir un paquet", "ouvrir", "paquet", "continuer", "carte", ""}
 
-    # Si cards_list contient déjà des dictionnaires complets avec screenshot individuel
-    if cards_list and isinstance(cards_list[0], dict):
-        for card_obj in cards_list:
-            t = str(card_obj.get("title", "")).strip()
-            if not t or len(t) < 3 or t.lower() in blacklist:
-                continue
-            r = str(card_obj.get("rarity", "C")).upper().strip()
-            if r not in RARITY_RANKS:
-                r = "C"
-            best_cards[account_id].append({
-                "title": t,
-                "rarity": r,
-                "timestamp": card_obj.get("timestamp") or ts_default,
-                "screenshot": card_obj.get("screenshot") or ""
-            })
-    else:
-        rarities_list = rarities_list or []
-        for title, rarity in zip(cards_list, rarities_list):
-            if not title or not isinstance(title, str):
-                continue
-            t = title.strip()
-            if not t or len(t) < 3 or t.lower() in blacklist:
-                continue
-            r_code = str(rarity).upper().strip() if rarity else "C"
-            if r_code not in RARITY_RANKS:
-                r_code = "C"
-            best_cards[account_id].append({
-                "title": t,
-                "rarity": r_code,
-                "timestamp": ts_default,
-                "screenshot": screenshot or ""
-            })
+        # Si cards_list contient déjà des dictionnaires complets avec screenshot individuel
+        if cards_list and isinstance(cards_list[0], dict):
+            for card_obj in cards_list:
+                t = str(card_obj.get("title", "")).strip()
+                if not t or len(t) < 3 or t.lower() in blacklist:
+                    continue
+                r = str(card_obj.get("rarity", "C")).upper().strip()
+                if r not in RARITY_RANKS:
+                    r = "C"
+                best_cards[account_id].append({
+                    "title": t,
+                    "rarity": r,
+                    "timestamp": card_obj.get("timestamp") or ts_default,
+                    "screenshot": card_obj.get("screenshot") or ""
+                })
+        else:
+            rarities_list = rarities_list or []
+            for title, rarity in zip(cards_list, rarities_list):
+                if not title or not isinstance(title, str):
+                    continue
+                t = title.strip()
+                if not t or len(t) < 3 or t.lower() in blacklist:
+                    continue
+                r_code = str(rarity).upper().strip() if rarity else "C"
+                if r_code not in RARITY_RANKS:
+                    r_code = "C"
+                best_cards[account_id].append({
+                    "title": t,
+                    "rarity": r_code,
+                    "timestamp": ts_default,
+                    "screenshot": screenshot or ""
+                })
 
-    # Dédoublonnage exact
-    seen = set()
-    unique = []
-    for c in best_cards[account_id]:
-        k = (c.get("title"), c.get("rarity"), c.get("timestamp"))
-        if k not in seen:
-            seen.add(k)
-            unique.append(c)
+        # Dédoublonnage exact
+        seen = set()
+        unique = []
+        for c in best_cards[account_id]:
+            k = (c.get("title"), c.get("rarity"), c.get("timestamp"))
+            if k not in seen:
+                seen.add(k)
+                unique.append(c)
 
-    # Tri par rareté décroissante (L > UR > SR > R > PC > C), puis date décroissante
-    unique.sort(
-        key=lambda x: (RARITY_RANKS.get(x.get("rarity", "C"), 0), x.get("timestamp", "")),
-        reverse=True
-    )
+        # Tri par rareté décroissante (L > UR > SR > R > PC > C), puis date décroissante
+        unique.sort(
+            key=lambda x: (RARITY_RANKS.get(x.get("rarity", "C"), 0), x.get("timestamp", "")),
+            reverse=True
+        )
 
-    # Garde strictement le TOP 10 (suppression automatique au-delà de 10)
-    best_cards[account_id] = unique[:10]
-    save_best_cards(best_cards)
-    return best_cards[account_id]
+        # Garde strictement le TOP 10 (suppression automatique au-delà de 10)
+        best_cards[account_id] = unique[:10]
+        save_best_cards(best_cards)
+        return best_cards[account_id]
 
 def delete_account_card(account_id, card_index):
     """Supprime manuellement une carte du Top 10."""
-    best_cards = load_best_cards()
-    cards = best_cards.get(account_id, [])
-    if 0 <= card_index < len(cards):
-        deleted = cards.pop(card_index)
-        save_best_cards(best_cards)
-        return True, deleted
-    return False, None
+    with _file_io_lock:
+        best_cards = load_best_cards()
+        cards = best_cards.get(account_id, [])
+        if 0 <= card_index < len(cards):
+            deleted = cards.pop(card_index)
+            save_best_cards(best_cards)
+            return True, deleted
+        return False, None
 
 SUPPORTED_BROWSERS = {
     "chrome": {
@@ -1214,7 +1234,7 @@ def extract_current_card_details(page):
 
     return title, rarity
 
-def claim_account(account_id, headless=True, status_callback=None):
+def claim_account(account_id, headless=True, target_url=None, status_callback=None, pack_callback=None):
     """
     Exécute la vérification et l'ouverture de TOUS les paquets disponibles.
     Tire en boucle tant qu'il y a du stock (1/10, 2/10...), extrait les raretés
@@ -1225,7 +1245,7 @@ def claim_account(account_id, headless=True, status_callback=None):
     name = acc.get("name", account_id)
     exe_path = get_browser_executable_for_account(account_id)
     p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
-    target_url = config.get("target_url", "https://wiki-masters.com/pulls")
+    target_url = target_url or config.get("target_url", "https://wiki-masters.com/pulls")
 
     if not is_account_configured(account_id):
         return {
@@ -1442,6 +1462,26 @@ def claim_account(account_id, headless=True, status_callback=None):
                 last_pack_rarity_summary = format_rarity_summary(pack_rarities)
 
                 safe_notify(status_callback, f"[{name}] ✅ Paquet #{current_pack_num} validé ! ({last_pack_rarity_summary})", "success")
+
+                # Mise à jour immédiate du Top 10 et notification live du paquet
+                if pack_card_objects:
+                    register_pulled_cards(account_id, pack_card_objects)
+
+                if pack_callback:
+                    try:
+                        pack_callback({
+                            "account_id": account_id,
+                            "pack_num": current_pack_num,
+                            "cards": pack_cards,
+                            "rarities": pack_rarities,
+                            "card_objects": pack_card_objects,
+                            "screenshot": latest_screenshot,
+                            "stock": f"{max(0, stock - 1)} / 10" if isinstance(stock, int) else "—",
+                            "rarity_summary": last_pack_rarity_summary
+                        })
+                    except Exception:
+                        pass
+
                 time.sleep(0.5)
 
             time.sleep(0.5)
