@@ -1454,7 +1454,8 @@ def find_hwnds_for_account(account_id):
                 pname = (proc.info.get('name') or '').lower()
                 if pname in ('chrome.exe', 'brave.exe', 'msedge.exe', 'opera.exe'):
                     cmdline = " ".join(proc.info.get('cmdline') or []).lower()
-                    if f"profiles/{target_key}" in cmdline or f"profiles\\{target_key}" in cmdline:
+                    if (f"profiles/{target_key}" in cmdline or f"profiles\\{target_key}" in cmdline or
+                            f"profiles/{target_key}_viewer" in cmdline or f"profiles\\{target_key}_viewer" in cmdline):
                         pids.add(proc.pid)
             except Exception:
                 pass
@@ -1537,8 +1538,18 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
     b_name = b_info["name"]
     exe_path = find_browser_executable(b_type)
 
+    account_busy = is_account_busy(account_id)
     p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
-    p_dir.mkdir(parents=True, exist_ok=True)
+
+    # Si le compte est occupé par un tirage headless, utiliser un profil viewer séparé
+    # pour ne pas interférer avec la session Playwright en cours.
+    if account_busy:
+        viewer_dir = BASE_DIR / (acc.get("profile_dir", f"profiles/{account_id}") + "_viewer")
+        viewer_dir.mkdir(parents=True, exist_ok=True)
+        active_p_dir = viewer_dir
+    else:
+        p_dir.mkdir(parents=True, exist_ok=True)
+        active_p_dir = p_dir
 
     if not os.path.exists(exe_path):
         return False, f"Exécutable {b_name} ({exe_path}) introuvable."
@@ -1550,11 +1561,12 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
             force_window_to_foreground(h)
         return True, f"Fenêtre {b_name} de {name} déjà ouverte : ramenée au tout premier plan !"
 
-    # 2. Nettoyage préventif des processus et verrous résiduels
-    kill_browser_processes(account_id)
-    clean_profile_locks(account_id, max_wait=1.0)
+    # 2. Nettoyage uniquement si le compte n'est PAS en train de tirer des cartes
+    if not account_busy:
+        kill_browser_processes(account_id)
+        clean_profile_locks(account_id, max_wait=1.0)
 
-    resolved_p_dir = str(p_dir.resolve())
+    resolved_p_dir = str(active_p_dir.resolve())
     cmd = [
         exe_path,
         f"--user-data-dir={resolved_p_dir}",
@@ -1576,7 +1588,7 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = 1
+        startupinfo.wShowWindow = 1  # SW_SHOWNORMAL
         try:
             startupinfo.lpDesktop = r"WinSta0\Default"
         except Exception:
@@ -1590,16 +1602,20 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
             close_fds=True
         )
 
-        # 3. Activation en tâche de fond pour amener la fenêtre au premier plan dès qu'elle est prête
+        # 3. Activation en tâche de fond : attendre que la fenêtre soit créée puis la forcer au premier plan
         def _activate_bg():
-            time.sleep(0.3)
-            for _ in range(25):
-                time.sleep(0.2)
+            # Attendre plus longtemps : Brave et Edge peuvent prendre 3-5s à créer leur fenêtre
+            time.sleep(0.5)
+            for _ in range(40):
+                time.sleep(0.25)
+                if proc.poll() is not None:
+                    break  # Processus terminé prématurément
                 hwnds = find_hwnds_for_account(account_id)
                 if hwnds:
                     for h in hwnds:
                         force_window_to_foreground(h)
                     return
+            # Dernier recours : chercher par titre
             bring_chrome_to_foreground("WikiMasters", account_id=account_id)
 
         threading.Thread(target=_activate_bg, daemon=True).start()
@@ -1607,6 +1623,7 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
         return True, f"{b_name} ouvert avec succès pour {name} (fenêtre au premier plan)."
     except Exception as e:
         return False, str(e)
+
 
 def extract_timer_seconds(page):
     try:
