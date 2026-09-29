@@ -2538,13 +2538,6 @@ class AccountCard(QFrame):
         self.update_configured_state()
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
-            child = self.childAt(pos)
-            if child in (self, self.title_lbl, self.sub_lbl, self.icon_lbl, self.donut, self.lbl_stock, self.lbl_total, self.lbl_rarity, self.lbl_last_time, self.lbl_cards):
-                self.open_browser_requested.emit(self.account_id)
-                event.accept()
-                return
         super().mousePressEvent(event)
 
     def init_ui(self):
@@ -2610,10 +2603,10 @@ class AccountCard(QFrame):
 
         title_row.addStretch()
 
-        self.sub_lbl = QLabel(f"Profil {b_display}")
-        self.sub_lbl.setStyleSheet(f"font-size:10px; color:{C_MUTED};")
+        self.sub_lbl = QLabel(f"🌐 {b_display} (Cliquer pour ouvrir)")
+        self.sub_lbl.setStyleSheet(f"font-size:10px; color:{self._accent}; font-weight:600;")
         self.sub_lbl.setCursor(Qt.PointingHandCursor)
-        self.sub_lbl.setToolTip(f"Cliquer pour ouvrir {b_display} connecté")
+        self.sub_lbl.setToolTip(f"Cliquer pour ouvrir {b_display} connecté avec la session de ce compte")
         self.sub_lbl.mousePressEvent = lambda e: self.open_browser_requested.emit(self.account_id)
         name_col.addLayout(title_row)
         name_col.addWidget(self.sub_lbl)
@@ -2742,19 +2735,23 @@ class AccountCard(QFrame):
         opts_box.addLayout(row_opts2)
         layout.addLayout(opts_box)
 
-        # ── Boutons Milieu : Top 10 + Transférer + Succès + Ouvrir Navigateur ─
+        # ── Bouton Dédié : Ouvrir le navigateur Chrome ──────────────────────
+        self.btn_open_browser = QPushButton(f"🌐  Ouvrir {b_display}")
+        self.btn_open_browser.setFixedHeight(34)
+        self.btn_open_browser.setCursor(Qt.PointingHandCursor)
+        self.btn_open_browser.setToolTip(f"Ouvre une fenêtre {b_display} connectée à la session de ce compte")
+        self.btn_open_browser.setStyleSheet(
+            "QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1d4ed8, stop:1 #2563eb); "
+            "color: #ffffff; border: 1px solid #3b82f6; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 0 12px; } "
+            "QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2563eb, stop:1 #3b82f6); border-color: #93c5fd; } "
+            "QPushButton:pressed { background: #1e40af; }"
+        )
+        self.btn_open_browser.clicked.connect(lambda: self.open_browser_requested.emit(self.account_id))
+        layout.addWidget(self.btn_open_browser)
+
+        # ── Boutons Actions : Transférer + Succès + Top 10 ───────────────────
         mid_btns = QHBoxLayout()
         mid_btns.setSpacing(6)
-
-        self.btn_top_cards = QPushButton("🏆 Top 10")
-        self.btn_top_cards.setStyleSheet(
-            f"QPushButton {{ background:{C_SURFACE}; color:#e0e7ff; border:1px solid #6366f1; "
-            f"border-radius:8px; padding:6px 6px; font-size:11px; font-weight:700; }} "
-            f"QPushButton:hover {{ background:#312e81; border-color:#818cf8; color:#ffffff; }}"
-        )
-        self.btn_top_cards.setCursor(Qt.PointingHandCursor)
-        self.btn_top_cards.setToolTip("Afficher le classement des 10 meilleures cartes de ce compte")
-        self.btn_top_cards.clicked.connect(self.open_top_cards)
 
         self.btn_transfer = QPushButton("🔄 Transférer")
         self.btn_transfer.setStyleSheet(
@@ -2776,21 +2773,19 @@ class AccountCard(QFrame):
         self.btn_achieve.setToolTip(f"Réclamer manuellement les succès maintenant pour {self.title_text}")
         self.btn_achieve.clicked.connect(lambda: self.claim_achievements_requested.emit(self.account_id))
 
-        self.btn_open_browser = QPushButton(f"{b_icon}")
-        self.btn_open_browser.setFixedWidth(34)
-        self.btn_open_browser.setStyleSheet(
-            f"QPushButton {{ background:{C_SURFACE}; color:{C_TEXT}; border:1px solid {self._accent}77; "
-            f"border-radius:8px; padding:6px 4px; font-size:12px; font-weight:600; }} "
-            f"QPushButton:hover {{ background:{self._accent}22; border-color:{self._accent}; color:#ffffff; }}"
+        self.btn_top_cards = QPushButton("⭐ Top 10")
+        self.btn_top_cards.setStyleSheet(
+            f"QPushButton {{ background:{C_SURFACE}; color:#e0e7ff; border:1px solid #6366f1; "
+            f"border-radius:8px; padding:6px 6px; font-size:11px; font-weight:700; }} "
+            f"QPushButton:hover {{ background:#312e81; border-color:#818cf8; color:#ffffff; }}"
         )
-        self.btn_open_browser.setCursor(Qt.PointingHandCursor)
-        self.btn_open_browser.setToolTip(f"Ouvre {b_display} connecté avec la session de ce compte")
-        self.btn_open_browser.clicked.connect(lambda: self.open_browser_requested.emit(self.account_id))
+        self.btn_top_cards.setCursor(Qt.PointingHandCursor)
+        self.btn_top_cards.setToolTip("Afficher le classement des 10 meilleures cartes de ce compte")
+        self.btn_top_cards.clicked.connect(self.open_top_cards)
 
-        mid_btns.addWidget(self.btn_top_cards)
         mid_btns.addWidget(self.btn_transfer)
         mid_btns.addWidget(self.btn_achieve)
-        mid_btns.addWidget(self.btn_open_browser)
+        mid_btns.addWidget(self.btn_top_cards)
         layout.addLayout(mid_btns)
 
         # ── Action buttons ──────────────────────────────────────────────────

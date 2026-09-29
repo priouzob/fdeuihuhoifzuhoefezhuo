@@ -1188,11 +1188,15 @@ def setup_account(account_id, start_url="https://wiki-masters.com/signup", statu
     safe_notify(status_callback, f"Créez votre compte ou connectez-vous sur WikiMasters, puis fermez {b_name} ou cliquez sur 'J'ai fini'.", "warning")
 
     try:
+        resolved_p_dir = str(p_dir.resolve())
         cmd = [
             exe_path,
-            f"--user-data-dir={p_dir}",
+            f"--user-data-dir={resolved_p_dir}",
             "--profile-directory=Default",
             "--new-window",
+            f"--window-name=WikiMasters_{account_id}",
+            "--window-size=1280,850",
+            "--window-position=120,80",
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-session-crashed-bubble",
@@ -1201,12 +1205,18 @@ def setup_account(account_id, start_url="https://wiki-masters.com/signup", statu
         ]
         creationflags = 0
         if sys.platform == "win32":
-            creationflags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
 
         local_proc = subprocess.Popen(cmd, creationflags=creationflags, close_fds=True)
         _active_setup_proc = local_proc
-        time.sleep(0.5)
-        bring_chrome_to_foreground("WikiMasters")
+
+        for _ in range(15):
+            time.sleep(0.2)
+            hwnds = find_hwnds_for_account(account_id)
+            if hwnds:
+                for h in hwnds:
+                    force_window_to_foreground(h)
+                break
 
         while local_proc.poll() is None:
             time.sleep(0.8)
@@ -1235,11 +1245,117 @@ def setup_account(account_id, start_url="https://wiki-masters.com/signup", statu
         safe_notify(status_callback, f"Erreur lors de la configuration : {e}", "error")
         return False, str(e)
 
-def bring_chrome_to_foreground(name_hint="WikiMasters"):
+def force_window_to_foreground(hwnd):
+    """
+    Force une fenêtre Windows spécifique à passer au tout premier plan et à recevoir le focus,
+    même si une autre application (ex: Google Chrome personnel) est active et maximisée.
+    Contourne la restriction Foreground Lock Timeout de Windows.
+    """
+    if sys.platform != "win32" or not hwnd:
+        return False
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+
+        # 1. Restaurer la fenêtre si elle est minimisée
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        else:
+            user32.ShowWindow(hwnd, 5)  # SW_SHOW
+
+        # 2. AttachThreadInput pour contourner le verrouillage de focus de Windows
+        fg_hwnd = user32.GetForegroundWindow()
+        cur_tid = kernel32.GetCurrentThreadId()
+        fg_tid = user32.GetWindowThreadProcessId(fg_hwnd, None) if fg_hwnd else 0
+        target_tid = user32.GetWindowThreadProcessId(hwnd, None)
+
+        if fg_tid and fg_tid != cur_tid:
+            user32.AttachThreadInput(cur_tid, fg_tid, True)
+        if target_tid and target_tid != cur_tid:
+            user32.AttachThreadInput(cur_tid, target_tid, True)
+
+        # 3. Simuler une touche système pour satisfaire la condition Windows
+        user32.keybd_event(0x12, 0, 0, 0)  # VK_MENU down
+        user32.keybd_event(0x12, 0, 2, 0)  # VK_MENU up
+
+        # 4. SetWindowPos avec HWND_TOPMOST puis HWND_NOTOPMOST pour forcer le dessus de la pile Z-Order
+        HWND_TOPMOST = -1
+        HWND_NOTOPMOST = -2
+        SWP_NOMOVE = 0x0002
+        SWP_NOSIZE = 0x0001
+        SWP_SHOWWINDOW = 0x0040
+        user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+        user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+
+        # 5. Détacher les threads
+        if fg_tid and fg_tid != cur_tid:
+            user32.AttachThreadInput(cur_tid, fg_tid, False)
+        if target_tid and target_tid != cur_tid:
+            user32.AttachThreadInput(cur_tid, target_tid, False)
+
+        return True
+    except Exception:
+        return False
+
+def find_hwnds_for_account(account_id):
+    """Trouve toutes les fenêtres visibles associées spécifiquement au profil de ce compte."""
+    if sys.platform != "win32":
+        return []
+    target_key = str(account_id).lower()
+    pids = set()
+    try:
+        import psutil
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                cmdline = " ".join(proc.info.get('cmdline') or []).lower()
+                if f"profiles/{target_key}" in cmdline or f"profiles\\{target_key}" in cmdline:
+                    pids.add(proc.pid)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    if not pids:
+        return []
+
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        hwnds = []
+
+        def enum_cb(hwnd, extra):
+            if user32.IsWindowVisible(hwnd):
+                pid = ctypes.c_ulong()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if pid.value in pids:
+                    length = user32.GetWindowTextLengthW(hwnd)
+                    if length > 0:
+                        hwnds.append(hwnd)
+            return True
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
+        return hwnds
+    except Exception:
+        return []
+
+def bring_chrome_to_foreground(name_hint="WikiMasters", account_id=None):
     """Force la fenêtre du navigateur nouvellement ouverte à passer au tout premier plan sur Windows."""
     try:
         if sys.platform != "win32":
             return
+        if account_id:
+            hwnds = find_hwnds_for_account(account_id)
+            if hwnds:
+                for h in hwnds:
+                    force_window_to_foreground(h)
+                return
+
+        # Fallback par recherche de titre
         import ctypes
         user32 = ctypes.windll.user32
         hwnds = []
@@ -1251,7 +1367,7 @@ def bring_chrome_to_foreground(name_hint="WikiMasters"):
                     buff = ctypes.create_unicode_buffer(length + 1)
                     user32.GetWindowTextW(hwnd, buff, length + 1)
                     t = buff.value.lower()
-                    if name_hint.lower() in t or "chrome" in t:
+                    if name_hint.lower() in t:
                         hwnds.append(hwnd)
             return True
 
@@ -1259,12 +1375,7 @@ def bring_chrome_to_foreground(name_hint="WikiMasters"):
         user32.EnumWindows(WNDENUMPROC(enum_win), 0)
 
         for hwnd in hwnds:
-            try:
-                user32.ShowWindow(hwnd, 9)  # SW_RESTORE / SW_SHOWNORMAL
-                user32.SetForegroundWindow(hwnd)
-                user32.BringWindowToTop(hwnd)
-            except Exception:
-                pass
+            force_window_to_foreground(hwnd)
     except Exception:
         pass
 
@@ -1286,7 +1397,14 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls"):
     if not os.path.exists(exe_path):
         return False, f"Exécutable {b_name} ({exe_path}) introuvable."
 
-    # Attendre si une tâche de fond est en train de libérer le compte
+    # 1. Vérifier si une fenêtre pour ce compte est DÉJÀ ouverte
+    existing_hwnds = find_hwnds_for_account(account_id)
+    if existing_hwnds:
+        for h in existing_hwnds:
+            force_window_to_foreground(h)
+        return True, f"Fenêtre {b_name} de {name} déjà ouverte : ramenée au tout premier plan !"
+
+    # 2. Attendre si une tâche de fond est en train de libérer le compte
     for _ in range(12):
         if not is_account_busy(account_id):
             break
@@ -1294,13 +1412,17 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls"):
 
     kill_browser_processes(account_id)
     clean_profile_locks(account_id, max_wait=2.0)
-    time.sleep(0.3)
+    time.sleep(0.2)
 
+    resolved_p_dir = str(p_dir.resolve())
     cmd = [
         exe_path,
-        f"--user-data-dir={p_dir}",
+        f"--user-data-dir={resolved_p_dir}",
         "--profile-directory=Default",
         "--new-window",
+        f"--window-name=WikiMasters_{account_id}",
+        "--window-size=1280,850",
+        "--window-position=120,80",
         "--no-first-run",
         "--no-default-browser-check",
         "--disable-session-crashed-bubble",
@@ -1310,23 +1432,38 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls"):
 
     creationflags = 0
     if sys.platform == "win32":
-        creationflags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
 
     try:
         proc = subprocess.Popen(cmd, creationflags=creationflags, close_fds=True)
-        time.sleep(0.8)
 
-        # Vérification si le processus est resté vivant ou a quitté prématurément (collision)
-        if proc.poll() is not None:
-            # Deuxième tentative de secours avec purge forcée des verrous
+        # 3. Attente active de l'apparition de la fenêtre (jusqu'à 3 secondes)
+        found_window = False
+        for _ in range(15):
+            time.sleep(0.2)
+            hwnds = find_hwnds_for_account(account_id)
+            if hwnds:
+                for h in hwnds:
+                    force_window_to_foreground(h)
+                found_window = True
+                break
+
+        # Si le processus est mort prématurément (collision de verrou), seconde tentative de secours
+        if not found_window and proc.poll() is not None:
             kill_browser_processes(account_id)
             clean_profile_locks(account_id, max_wait=2.0)
-            time.sleep(0.4)
+            time.sleep(0.3)
             proc = subprocess.Popen(cmd, creationflags=creationflags, close_fds=True)
-            time.sleep(0.6)
+            for _ in range(15):
+                time.sleep(0.2)
+                hwnds = find_hwnds_for_account(account_id)
+                if hwnds:
+                    for h in hwnds:
+                        force_window_to_foreground(h)
+                    found_window = True
+                    break
 
-        # Forcer la nouvelle fenêtre au premier plan sur l'écran
-        bring_chrome_to_foreground("WikiMasters")
+        bring_chrome_to_foreground("WikiMasters", account_id=account_id)
         return True, f"{b_name} ouvert avec succès pour {name} (fenêtre au premier plan)."
     except Exception as e:
         return False, str(e)
