@@ -17,6 +17,13 @@ from datetime import datetime
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from stealth import apply_stealth, human_delay, human_click, check_and_handle_turnstile, check_and_handle_verification_modal
 
 BASE_DIR = Path(__file__).parent.resolve()
@@ -625,14 +632,23 @@ def set_account_option(account_id, option_key, value):
         pass
     return False
 
+_LAST_ACHIEVEMENTS_CHECK = {}
+
+def should_check_account_achievements(account_id, cooldown_seconds=600):
+    last = _LAST_ACHIEVEMENTS_CHECK.get(account_id, 0)
+    return (time.time() - last) > cooldown_seconds
+
+def record_achievements_check(account_id):
+    _LAST_ACHIEVEMENTS_CHECK[account_id] = time.time()
+
 def claim_account_achievements(page, account_name, status_callback=None):
     """
     Réclame automatiquement tous les succès débloqués sur /achievements.
-    Simule des délais humains et des clics naturels.
+    Protégé contre les boucles infinies et délais excessifs.
     """
     try:
         safe_notify(status_callback, f"[{account_name}] 🏆 Vérification des succès...", "info")
-        # 1. Déclencher la synchronisation des succès
+        # 1. Déclencher la synchronisation des succès via API
         page.evaluate("""async () => {
             try {
                 await fetch('/api/achievements/check', {
@@ -649,12 +665,13 @@ def claim_account_achievements(page, account_name, status_callback=None):
         except Exception:
             return 0
 
-        time.sleep(0.6)
+        time.sleep(0.5)
         claimed_count = 0
 
-        while True:
-            btn = page.locator("button:has-text('Réclamer')").first
-            if btn.count() == 0 or not btn.is_visible():
+        # Limité à 25 succès pour garantir une sortie immédiate
+        for _ in range(25):
+            btn = page.locator("button:has-text('Réclamer'):not([disabled]):not([aria-disabled='true'])").first
+            if btn.count() == 0 or not btn.is_visible() or not btn.is_enabled():
                 break
 
             card_container = btn.locator("xpath=ancestor::div[contains(@class, 'rounded') or contains(@class, 'border')][1]")
@@ -664,8 +681,8 @@ def claim_account_achievements(page, account_name, status_callback=None):
             except Exception:
                 pass
 
-            human_delay(0.3, 0.6)
-            human_click(page, btn)
+            human_delay(0.2, 0.4)
+            btn.click()
             claimed_count += 1
             safe_notify(status_callback, f"[{account_name}] 🏆 Succès réclamé : {title} !", "success")
             time.sleep(0.4)
@@ -1058,8 +1075,10 @@ def extract_current_card_details(page):
     rarity = "C"
     blacklist_words = [
         "carte", "encore", "wikimasters", "points", "continuer", "ouvrir",
-        "paquet", "stock", "collection", "marché", "bataille", "profil",
-        "succès", "classement", "connexion", "déconnexion", "échanges"
+        "ouverture", "ouverture...", "dernière", "derniere", "paquet", "paquets",
+        "stock", "collection", "marché", "bataille", "profil", "succès",
+        "classement", "connexion", "déconnexion", "échanges", "rechargez",
+        "s'abonner", "comment ça marche"
     ]
     try:
         # 1. Rareté : badge officiel en haut à gauche
@@ -1121,10 +1140,7 @@ def claim_account(account_id, headless=True, status_callback=None):
             "details": f"{name} non configuré. Cliquez sur '🔑 Connecter'."
         }
 
-    # Délai humain aléatoire (anti-détection temporelle)
-    human_delay(0.5, 1.8)
     safe_notify(status_callback, f"[{name}] Vérification furtive du compte...", "info")
-
     kill_browser_processes(account_id)
 
     with sync_playwright() as p:
@@ -1142,15 +1158,15 @@ def claim_account(account_id, headless=True, status_callback=None):
             apply_stealth(context)
             page = context.pages[0] if context.pages else context.new_page()
             try:
-                page.goto(target_url, wait_until="domcontentloaded", timeout=12000)
+                page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
             except Exception:
                 pass
 
-            # S'assurer que Next.js a fini d'hydrater les paquets et compteurs
+            # S'assurer que Next.js a fini d'hydrater la page et que le spinner est passé
             try:
                 page.wait_for_selector(
                     "button:has-text('Ouvrir'), *:has-text('Prochain dans'), input[type='email'], div.cf-turnstile, iframe[src*='turnstile']",
-                    timeout=5000
+                    timeout=8000
                 )
             except Exception:
                 pass
@@ -1165,9 +1181,9 @@ def claim_account(account_id, headless=True, status_callback=None):
                 solved = check_and_handle_turnstile(page)
                 if solved:
                     safe_notify(status_callback, f"[{name}] 🛡️ Vérification validée discrètement avec succès.", "success")
-                    time.sleep(1.5)
+                    time.sleep(1.0)
                 else:
-                    time.sleep(2.0)
+                    time.sleep(1.5)
                     has_content = page.locator("button:has-text('Ouvrir'), div:has-text('paquets disponibles')").count() > 0
                     if not has_content:
                         context.close()
@@ -1183,7 +1199,7 @@ def claim_account(account_id, headless=True, status_callback=None):
 
             # Vérifier si on est redirigé vers /login
             if "/login" in page.url or "/signup" in page.url:
-                time.sleep(0.8)
+                time.sleep(0.5)
                 if "/login" in page.url or "/signup" in page.url:
                     context.close()
                     kill_browser_processes(account_id)
@@ -1205,38 +1221,47 @@ def claim_account(account_id, headless=True, status_callback=None):
             while True:
                 stock = extract_stock_count(page)
                 ouvrir_btn = page.locator("button:has-text('Ouvrir'):not([disabled])").first
-
                 is_btn_ready = (ouvrir_btn.count() > 0 and ouvrir_btn.is_visible() and ouvrir_btn.is_enabled())
 
-                if stock > 0 and not is_btn_ready:
+                if not is_btn_ready and stock > 0:
                     time.sleep(0.8)
                     ouvrir_btn = page.locator("button:has-text('Ouvrir'):not([disabled])").first
                     is_btn_ready = (ouvrir_btn.count() > 0 and ouvrir_btn.is_visible() and ouvrir_btn.is_enabled())
-
-                if not is_btn_ready and stock == 0:
-                    break
 
                 if not is_btn_ready:
                     break
 
                 current_pack_num = total_packs_opened + 1
-                safe_notify(status_callback, f"[{name}] 📦 Ouverture du paquet #{current_pack_num} (Stock disponible: {stock})...", "stealth")
+                safe_notify(status_callback, f"[{name}] 📦 Ouverture du paquet #{current_pack_num} (Stock: {stock})...", "stealth")
 
-                human_delay(0.4, 0.8)
-                human_click(page, ouvrir_btn)
-                time.sleep(0.8)
+                # Clic d'ouverture
+                human_delay(0.2, 0.5)
+                ouvrir_btn.click()
+
+                # Attente EXPLICITE de la fin de l'animation de déchirure du paquet (3 secondes sur WikiMasters)
+                try:
+                    page.wait_for_selector(
+                        "button.w-12.h-12:not([disabled]), button:has-text('Continuer'), button:has-text('Encore'), text=/Carte\\s*1\\s*\\/\\s*5/i",
+                        timeout=12000
+                    )
+                except Exception:
+                    time.sleep(3.2)
 
                 # Si la modale 'Vérification rapide' s'est déclenchée au clic
                 if check_and_handle_verification_modal(page, status_callback):
                     time.sleep(1.0)
                     ouvrir_retry = page.locator("button:has-text('Ouvrir'):not([disabled])").first
                     if ouvrir_retry.count() > 0 and ouvrir_retry.is_visible() and ouvrir_retry.is_enabled():
-                        human_click(page, ouvrir_retry)
+                        ouvrir_retry.click()
+                        try:
+                            page.wait_for_selector(
+                                "button.w-12.h-12:not([disabled]), button:has-text('Continuer'), button:has-text('Encore')",
+                                timeout=10000
+                            )
+                        except Exception:
+                            time.sleep(3.0)
 
                 total_packs_opened += 1
-
-                # Attente fluide de l'apparition de la première carte
-                human_delay(1.2, 1.8)
 
                 pack_cards = []
                 pack_rarities = []
@@ -1244,7 +1269,7 @@ def claim_account(account_id, headless=True, status_callback=None):
 
                 # Révélation précise des 5 cartes du paquet
                 for card_idx in range(5):
-                    human_delay(0.5, 0.9)
+                    time.sleep(0.4)
 
                     card_title, card_rarity = extract_current_card_details(page)
                     if not card_title:
@@ -1275,23 +1300,30 @@ def claim_account(account_id, headless=True, status_callback=None):
                         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     })
 
-                    # Flèche suivante pour passer à la carte suivante
+                    # Navigation vers la carte suivante via la flèche droite pour cartes 1 à 4
                     if card_idx < 4:
-                        arrow_next = page.locator("button:has(polyline[points='9 18 15 12 9 6']):not([disabled])").first
-                        if arrow_next.count() > 0 and arrow_next.is_visible() and arrow_next.is_enabled():
-                            human_delay(0.2, 0.4)
-                            human_click(page, arrow_next)
+                        arrow_next = page.locator("button.w-12.h-12:not([disabled]), button:has(polyline[points*='15 12 9 6']):not([disabled])")
+                        if arrow_next.count() > 0:
+                            arrow_next.last.click()
                         else:
-                            human_delay(0.2, 0.4)
+                            time.sleep(0.3)
 
-                # Validation finale du paquet par 'Continuer'
-                continuer_btn = page.locator("button:has-text('Continuer'):not([disabled])").first
-                if continuer_btn.count() > 0 and continuer_btn.is_visible() and continuer_btn.is_enabled():
-                    human_delay(0.4, 0.8)
-                    human_click(page, continuer_btn)
-                    human_delay(1.0, 1.6)
+                # Validation finale du paquet par 'Continuer' sur la carte 5
+                time.sleep(0.4)
+                continuer_btn = page.locator("button:has-text('Continuer'):not([disabled]), button.px-8.py-3:not([disabled])").first
+                if continuer_btn.count() > 0 and continuer_btn.is_visible():
+                    continuer_btn.click()
                 else:
-                    human_delay(0.8, 1.4)
+                    for cb in page.locator("button:has-text('Continuer')").all():
+                        if cb.is_visible() and not cb.is_disabled():
+                            cb.click()
+                            break
+
+                # Attendre que la modale de paquet se ferme complètement
+                try:
+                    page.wait_for_selector("button:has-text('Ouvrir'), *:has-text('Prochain dans')", timeout=8000)
+                except Exception:
+                    time.sleep(1.0)
 
                 check_and_handle_verification_modal(page, status_callback)
 
@@ -1301,13 +1333,13 @@ def claim_account(account_id, headless=True, status_callback=None):
                 last_pack_rarity_summary = format_rarity_summary(pack_rarities)
 
                 safe_notify(status_callback, f"[{name}] ✅ Paquet #{current_pack_num} validé ! ({last_pack_rarity_summary})", "success")
-                human_delay(0.6, 1.2)
+                time.sleep(0.5)
 
-            time.sleep(0.8)
+            time.sleep(0.5)
             final_stock = extract_stock_count(page)
             timer_sec = extract_timer_seconds(page)
             if timer_sec is None:
-                time.sleep(1.0)
+                time.sleep(0.8)
                 timer_sec = extract_timer_seconds(page)
             if timer_sec is None:
                 timer_sec = 60
@@ -1337,14 +1369,18 @@ def claim_account(account_id, headless=True, status_callback=None):
             # 1. Extraction des statistiques réelles de collection (total et raretés)
             col_stats = extract_collection_stats(page, account_id)
 
-            # 2. Auto-claim des succès uniquement si des paquets ont été ouverts
-            if acc.get("auto_achievements", True) and total_packs_opened > 0:
+            # 2. Auto-claim des succès si l'option est cochée (si paquets ouverts ou périodique)
+            should_check_ach = acc.get("auto_achievements", True) and (
+                total_packs_opened > 0 or should_check_account_achievements(account_id)
+            )
+            if should_check_ach:
                 try:
                     claim_account_achievements(page, name, status_callback)
+                    record_achievements_check(account_id)
                 except Exception:
                     pass
 
-            # 3. Interconnexion automatique des amis uniquement si des paquets ont été ouverts
+            # 3. Interconnexion automatique des amis si l'option est cochée et paquets ouverts
             if acc.get("auto_friends", True) and total_packs_opened > 0:
                 try:
                     sync_account_friends(page, acc, config.get("accounts", []), status_callback)
@@ -1380,6 +1416,7 @@ def claim_account(account_id, headless=True, status_callback=None):
                     "seconds_left": timer_sec,
                     "timer_str": timer_str,
                     "stock": f"{final_stock} / 10",
+                    "top_cards": get_account_best_cards(account_id),
                     "collection_stats": col_stats or get_account_collection_stats(account_id),
                     "details": f"📦 Stock : {final_stock}/10 | Prochain paquet dans {timer_str}"
                 }
