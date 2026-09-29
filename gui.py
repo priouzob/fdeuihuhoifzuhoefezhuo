@@ -2515,6 +2515,15 @@ class MainWindow(QMainWindow):
 
 def main():
     write_debug("Initialisation de QApplication...")
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            u32 = ctypes.windll.user32
+            hdesk = u32.OpenDesktopW("Default", 0, False, 0x01FF)
+            if hdesk:
+                u32.SetThreadDesktop(hdesk)
+        except Exception:
+            pass
     try:
         app = QApplication.instance() or QApplication(sys.argv)
         app.setStyle("Fusion")
