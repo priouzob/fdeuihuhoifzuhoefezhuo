@@ -109,9 +109,11 @@ def kill_browser_processes(browser_key):
         matched_procs = []
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
-                cmdline = " ".join(proc.info.get('cmdline') or []).lower()
-                if f"profiles/{target_key}" in cmdline or f"profiles\\{target_key}" in cmdline:
-                    matched_procs.append(proc)
+                pname = (proc.info.get('name') or '').lower()
+                if pname in ('chrome.exe', 'brave.exe', 'msedge.exe', 'opera.exe'):
+                    cmdline = " ".join(proc.info.get('cmdline') or []).lower()
+                    if f"profiles/{target_key}" in cmdline or f"profiles\\{target_key}" in cmdline:
+                        matched_procs.append(proc)
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 pass
 
@@ -129,7 +131,7 @@ def kill_browser_processes(browser_key):
                     pass
     except Exception:
         pass
-    clean_profile_locks(browser_key, max_wait=1.5)
+    clean_profile_locks(browser_key, max_wait=1.0)
     time.sleep(0.05)
 
 def load_collection_stats():
@@ -575,6 +577,26 @@ def get_browser_executable_for_account(account_id):
         return custom_exe
     b_type = acc.get("browser_type", "chrome")
     return find_browser_executable(b_type)
+
+def set_account_browser(account_id, browser_type):
+    """Définit et sauvegarde le navigateur préféré pour un compte (chrome, brave, edge, opera)."""
+    b_type = str(browser_type).lower().strip()
+    if b_type not in SUPPORTED_BROWSERS:
+        b_type = "chrome"
+    config = load_config()
+    accounts = config.get("accounts", [])
+    found = False
+    for acc in accounts:
+        if acc.get("id") == account_id:
+            acc["browser_type"] = b_type
+            acc["browser_executable"] = find_browser_executable(b_type)
+            found = True
+            break
+    if found:
+        config["accounts"] = accounts
+        save_config(config)
+        return True
+    return False
 
 def get_accounts():
     config = load_config()
@@ -1165,24 +1187,26 @@ def close_active_setup():
                 pass
     _active_setup_proc = None
 
-def setup_account(account_id, start_url="https://wiki-masters.com/signup", status_callback=None):
+def setup_account(account_id, start_url="https://wiki-masters.com/signup", status_callback=None, browser_type=None):
     global _active_setup_proc
     close_active_setup()
 
     acc = get_account_info(account_id)
     name = acc.get("name", account_id)
-    exe_path = get_browser_executable_for_account(account_id)
+    b_type = (browser_type or acc.get("browser_type", "chrome")).lower()
+    b_info = SUPPORTED_BROWSERS.get(b_type, SUPPORTED_BROWSERS["chrome"])
+    b_name = b_info["name"]
+    exe_path = find_browser_executable(b_type)
+
     p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
     p_dir.mkdir(parents=True, exist_ok=True)
-
-    b_type = acc.get("browser_type", "chrome")
-    b_name = SUPPORTED_BROWSERS.get(b_type, {}).get("name", "Navigateur")
 
     if not os.path.exists(exe_path):
         safe_notify(status_callback, f"Exécutable {b_name} ({exe_path}) introuvable.", "error")
         return False, f"Exécutable introuvable : {exe_path}"
 
     kill_browser_processes(account_id)
+    clean_profile_locks(account_id, max_wait=1.0)
 
     safe_notify(status_callback, f"Ouverture de {b_name} pour {name}...", "info")
     safe_notify(status_callback, f"Créez votre compte ou connectez-vous sur WikiMasters, puis fermez {b_name} ou cliquez sur 'J'ai fini'.", "warning")
@@ -1196,7 +1220,7 @@ def setup_account(account_id, start_url="https://wiki-masters.com/signup", statu
             "--new-window",
             f"--window-name=WikiMasters_{account_id}",
             "--window-size=1280,850",
-            "--window-position=120,80",
+            "--window-position=100,60",
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-session-crashed-bubble",
@@ -1204,10 +1228,18 @@ def setup_account(account_id, start_url="https://wiki-masters.com/signup", statu
             start_url
         ]
         creationflags = 0
+        startupinfo = None
         if sys.platform == "win32":
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 1
+            try:
+                startupinfo.lpDesktop = r"WinSta0\Default"
+            except Exception:
+                pass
 
-        local_proc = subprocess.Popen(cmd, creationflags=creationflags, close_fds=True)
+        local_proc = subprocess.Popen(cmd, creationflags=creationflags, startupinfo=startupinfo, close_fds=True)
         _active_setup_proc = local_proc
 
         for _ in range(15):
@@ -1222,7 +1254,7 @@ def setup_account(account_id, start_url="https://wiki-masters.com/signup", statu
             time.sleep(0.8)
 
         _active_setup_proc = None
-        time.sleep(1.5)
+        time.sleep(1.0)
         kill_browser_processes(account_id)
         time.sleep(0.5)
 
@@ -1311,16 +1343,15 @@ def find_hwnds_for_account(account_id):
         import psutil
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
-                cmdline = " ".join(proc.info.get('cmdline') or []).lower()
-                if f"profiles/{target_key}" in cmdline or f"profiles\\{target_key}" in cmdline:
-                    pids.add(proc.pid)
+                pname = (proc.info.get('name') or '').lower()
+                if pname in ('chrome.exe', 'brave.exe', 'msedge.exe', 'opera.exe'):
+                    cmdline = " ".join(proc.info.get('cmdline') or []).lower()
+                    if f"profiles/{target_key}" in cmdline or f"profiles\\{target_key}" in cmdline:
+                        pids.add(proc.pid)
             except Exception:
                 pass
     except Exception:
         pass
-
-    if not pids:
-        return []
 
     try:
         import ctypes
@@ -1331,9 +1362,14 @@ def find_hwnds_for_account(account_id):
             if user32.IsWindowVisible(hwnd):
                 pid = ctypes.c_ulong()
                 user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                length = user32.GetWindowTextLengthW(hwnd)
                 if pid.value in pids:
-                    length = user32.GetWindowTextLengthW(hwnd)
-                    if length > 0:
+                    hwnds.append(hwnd)
+                elif length > 0:
+                    buff = ctypes.create_unicode_buffer(length + 1)
+                    user32.GetWindowTextW(hwnd, buff, length + 1)
+                    t = buff.value.lower()
+                    if f"wikimasters_{target_key}" in t or ("wikimasters" in t and target_key in t):
                         hwnds.append(hwnd)
             return True
 
@@ -1379,20 +1415,22 @@ def bring_chrome_to_foreground(name_hint="WikiMasters", account_id=None):
     except Exception:
         pass
 
-def open_account_browser(account_id, url="https://wiki-masters.com/pulls"):
+def open_account_browser(account_id, url="https://wiki-masters.com/pulls", browser_type=None):
     """
     Lance le navigateur associé à ce compte avec son profil persistant
     dans une fenêtre visible et autonome au premier plan absolu.
-    Gère la coexistence avec l'instance Chrome personnelle de l'utilisateur.
+    Prend en charge le choix direct du navigateur (Chrome, Brave, Edge).
+    Gère la coexistence avec les instances personnelles et débloque le focus.
     """
     acc = get_account_info(account_id)
     name = acc.get("name", account_id)
-    exe_path = get_browser_executable_for_account(account_id)
+    b_type = (browser_type or acc.get("browser_type", "chrome")).lower()
+    b_info = SUPPORTED_BROWSERS.get(b_type, SUPPORTED_BROWSERS["chrome"])
+    b_name = b_info["name"]
+    exe_path = find_browser_executable(b_type)
+
     p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
     p_dir.mkdir(parents=True, exist_ok=True)
-
-    b_type = acc.get("browser_type", "chrome")
-    b_name = SUPPORTED_BROWSERS.get(b_type, {}).get("name", "Google Chrome")
 
     if not os.path.exists(exe_path):
         return False, f"Exécutable {b_name} ({exe_path}) introuvable."
@@ -1404,15 +1442,9 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls"):
             force_window_to_foreground(h)
         return True, f"Fenêtre {b_name} de {name} déjà ouverte : ramenée au tout premier plan !"
 
-    # 2. Attendre si une tâche de fond est en train de libérer le compte
-    for _ in range(12):
-        if not is_account_busy(account_id):
-            break
-        time.sleep(0.3)
-
+    # 2. Nettoyage préventif des processus et verrous résiduels
     kill_browser_processes(account_id)
-    clean_profile_locks(account_id, max_wait=2.0)
-    time.sleep(0.2)
+    clean_profile_locks(account_id, max_wait=1.0)
 
     resolved_p_dir = str(p_dir.resolve())
     cmd = [
@@ -1422,7 +1454,7 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls"):
         "--new-window",
         f"--window-name=WikiMasters_{account_id}",
         "--window-size=1280,850",
-        "--window-position=120,80",
+        "--window-position=100,60",
         "--no-first-run",
         "--no-default-browser-check",
         "--disable-session-crashed-bubble",
@@ -1431,39 +1463,39 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls"):
     ]
 
     creationflags = 0
+    startupinfo = None
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 1
+        try:
+            startupinfo.lpDesktop = r"WinSta0\Default"
+        except Exception:
+            pass
 
     try:
-        proc = subprocess.Popen(cmd, creationflags=creationflags, close_fds=True)
+        proc = subprocess.Popen(
+            cmd,
+            creationflags=creationflags,
+            startupinfo=startupinfo,
+            close_fds=True
+        )
 
-        # 3. Attente active de l'apparition de la fenêtre (jusqu'à 3 secondes)
-        found_window = False
-        for _ in range(15):
-            time.sleep(0.2)
-            hwnds = find_hwnds_for_account(account_id)
-            if hwnds:
-                for h in hwnds:
-                    force_window_to_foreground(h)
-                found_window = True
-                break
-
-        # Si le processus est mort prématurément (collision de verrou), seconde tentative de secours
-        if not found_window and proc.poll() is not None:
-            kill_browser_processes(account_id)
-            clean_profile_locks(account_id, max_wait=2.0)
+        # 3. Activation en tâche de fond pour amener la fenêtre au premier plan dès qu'elle est prête
+        def _activate_bg():
             time.sleep(0.3)
-            proc = subprocess.Popen(cmd, creationflags=creationflags, close_fds=True)
-            for _ in range(15):
+            for _ in range(25):
                 time.sleep(0.2)
                 hwnds = find_hwnds_for_account(account_id)
                 if hwnds:
                     for h in hwnds:
                         force_window_to_foreground(h)
-                    found_window = True
-                    break
+                    return
+            bring_chrome_to_foreground("WikiMasters", account_id=account_id)
 
-        bring_chrome_to_foreground("WikiMasters", account_id=account_id)
+        threading.Thread(target=_activate_bg, daemon=True).start()
+
         return True, f"{b_name} ouvert avec succès pour {name} (fenêtre au premier plan)."
     except Exception as e:
         return False, str(e)

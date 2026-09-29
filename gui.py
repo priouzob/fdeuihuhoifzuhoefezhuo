@@ -2235,20 +2235,41 @@ class AddAccountDialog(QDialog):
 
 # ─── Workers ─────────────────────────────────────────────────────────────────
 
+class BrowserLaunchWorker(QThread):
+    log_signal = Signal(str, str)
+    finished_signal = Signal(str, bool, str)
+
+    def __init__(self, account_id, browser_type=None, url="https://wiki-masters.com/pulls"):
+        super().__init__()
+        self.account_id = account_id
+        self.browser_type = browser_type
+        self.url = url
+
+    def run(self):
+        acc = engine.get_account_info(self.account_id)
+        name = acc.get("name", self.account_id)
+        b_type = (self.browser_type or acc.get("browser_type", "chrome")).lower()
+        b_name = engine.SUPPORTED_BROWSERS.get(b_type, {}).get("name", "Navigateur")
+        self.log_signal.emit(f"🌐 Lancement de {b_name} pour '{name}'...", "info")
+        ok, msg = engine.open_account_browser(self.account_id, url=self.url, browser_type=self.browser_type)
+        self.finished_signal.emit(self.account_id, ok, msg)
+
 class SetupWorker(QThread):
     log_signal = Signal(str, str)
     finished_signal = Signal(str, bool, str)
 
-    def __init__(self, account_id, start_url="https://wiki-masters.com/signup"):
+    def __init__(self, account_id, start_url="https://wiki-masters.com/signup", browser_type=None):
         super().__init__()
         self.account_id = account_id
         self.start_url = start_url
+        self.browser_type = browser_type
 
     def run(self):
         success, msg = engine.setup_account(
             self.account_id,
             start_url=self.start_url,
-            status_callback=lambda text, level: self.log_signal.emit(text, level)
+            status_callback=lambda text, level: self.log_signal.emit(text, level),
+            browser_type=self.browser_type
         )
         self.finished_signal.emit(self.account_id, success, msg)
 
@@ -2496,7 +2517,7 @@ class AccountCard(QFrame):
     finish_setup_requested = Signal(str)
     delete_requested = Signal(str)
     rename_requested = Signal(str, str)
-    open_browser_requested = Signal(str)
+    open_browser_requested = Signal(str, str)
     transfer_requested = Signal(str)
     claim_achievements_requested = Signal(str)
     sync_friends_requested = Signal(str)
@@ -2567,7 +2588,7 @@ class AccountCard(QFrame):
         self.icon_lbl.setStyleSheet(
             f"font-size:18px; background:{self._accent}22; border-radius:9px; border:1px solid {self._accent}44;"
         )
-        self.icon_lbl.mousePressEvent = lambda e: self.open_browser_requested.emit(self.account_id)
+        self.icon_lbl.mousePressEvent = lambda e: self.request_open_browser()
 
         name_col = QVBoxLayout()
         name_col.setSpacing(2)
@@ -2579,7 +2600,7 @@ class AccountCard(QFrame):
         self.title_lbl.setStyleSheet(f"font-size:13px; font-weight:700; color:{C_TEXT};")
         self.title_lbl.setCursor(Qt.PointingHandCursor)
         self.title_lbl.setToolTip(f"Cliquer pour ouvrir {b_display} connecté (Double-clic pour renommer)")
-        self.title_lbl.mousePressEvent = lambda e: self.open_browser_requested.emit(self.account_id)
+        self.title_lbl.mousePressEvent = lambda e: self.request_open_browser()
         self.title_lbl.mouseDoubleClickEvent = lambda e: self.prompt_rename()
 
         btn_rename = QPushButton("✏️")
@@ -2607,7 +2628,7 @@ class AccountCard(QFrame):
         self.sub_lbl.setStyleSheet(f"font-size:10px; color:{self._accent}; font-weight:600;")
         self.sub_lbl.setCursor(Qt.PointingHandCursor)
         self.sub_lbl.setToolTip(f"Cliquer pour ouvrir {b_display} connecté avec la session de ce compte")
-        self.sub_lbl.mousePressEvent = lambda e: self.open_browser_requested.emit(self.account_id)
+        self.sub_lbl.mousePressEvent = lambda e: self.request_open_browser()
         name_col.addLayout(title_row)
         name_col.addWidget(self.sub_lbl)
 
@@ -2735,19 +2756,67 @@ class AccountCard(QFrame):
         opts_box.addLayout(row_opts2)
         layout.addLayout(opts_box)
 
-        # ── Bouton Dédié : Ouvrir le navigateur Chrome ──────────────────────
-        self.btn_open_browser = QPushButton(f"🌐  Ouvrir {b_display}")
-        self.btn_open_browser.setFixedHeight(34)
-        self.btn_open_browser.setCursor(Qt.PointingHandCursor)
-        self.btn_open_browser.setToolTip(f"Ouvre une fenêtre {b_display} connectée à la session de ce compte")
-        self.btn_open_browser.setStyleSheet(
-            "QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1d4ed8, stop:1 #2563eb); "
-            "color: #ffffff; border: 1px solid #3b82f6; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 0 12px; } "
-            "QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2563eb, stop:1 #3b82f6); border-color: #93c5fd; } "
-            "QPushButton:pressed { background: #1e40af; }"
+        # ── Sélecteur et Lancement Multi-Navigateurs (1-Clic) ────────────────
+        b_frame = QFrame()
+        b_frame.setStyleSheet(
+            f"QFrame {{ background: #0b1329bb; border: 1px solid {C_BORDER}; border-radius: 10px; }}"
         )
-        self.btn_open_browser.clicked.connect(lambda: self.open_browser_requested.emit(self.account_id))
-        layout.addWidget(self.btn_open_browser)
+        b_layout = QVBoxLayout(b_frame)
+        b_layout.setContentsMargins(8, 8, 8, 8)
+        b_layout.setSpacing(6)
+
+        b_header = QHBoxLayout()
+        b_header.setSpacing(6)
+        lbl_b_title = QLabel("🚀  OUVRIR LA FENÊTRE DU COMPTE :")
+        lbl_b_title.setStyleSheet("font-size: 10px; font-weight: 800; color: #94a3b8; letter-spacing: 0.5px;")
+        b_header.addWidget(lbl_b_title)
+        b_header.addStretch()
+
+        self.lbl_default_badge = QLabel("Défaut : " + b_display)
+        self.lbl_default_badge.setStyleSheet(f"font-size: 9px; font-weight: 700; color: {self._accent};")
+        b_header.addWidget(self.lbl_default_badge)
+        b_layout.addLayout(b_header)
+
+        # Boutons 1-clic pour chaque navigateur
+        row_b = QHBoxLayout()
+        row_b.setSpacing(6)
+
+        self.btn_open_chrome = QPushButton("🌐 Chrome")
+        self.btn_open_brave  = QPushButton("🦁 Brave")
+        self.btn_open_edge   = QPushButton("🌊 Edge")
+
+        for btn in [self.btn_open_chrome, self.btn_open_brave, self.btn_open_edge]:
+            btn.setFixedHeight(30)
+            btn.setCursor(Qt.PointingHandCursor)
+
+        self.btn_open_chrome.clicked.connect(lambda: self.request_open_browser("chrome"))
+        self.btn_open_brave.clicked.connect(lambda: self.request_open_browser("brave"))
+        self.btn_open_edge.clicked.connect(lambda: self.request_open_browser("edge"))
+
+        self.btn_open_chrome.setToolTip("Cliquer pour ouvrir immédiatement dans Google Chrome\n(Clic droit pour définir par défaut)")
+        self.btn_open_brave.setToolTip("Cliquer pour ouvrir immédiatement dans Brave Browser (Anti-conflit)\n(Clic droit pour définir par défaut)")
+        self.btn_open_edge.setToolTip("Cliquer pour ouvrir immédiatement dans Microsoft Edge (Anti-conflit)\n(Clic droit pour définir par défaut)")
+
+        self.btn_open_chrome.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.btn_open_chrome.customContextMenuRequested.connect(lambda pos: self.show_browser_menu("chrome", self.btn_open_chrome, pos))
+
+        self.btn_open_brave.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.btn_open_brave.customContextMenuRequested.connect(lambda pos: self.show_browser_menu("brave", self.btn_open_brave, pos))
+
+        self.btn_open_edge.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.btn_open_edge.customContextMenuRequested.connect(lambda pos: self.show_browser_menu("edge", self.btn_open_edge, pos))
+
+        row_b.addWidget(self.btn_open_chrome)
+        row_b.addWidget(self.btn_open_brave)
+        row_b.addWidget(self.btn_open_edge)
+        b_layout.addLayout(row_b)
+
+        lbl_b_hint = QLabel("💡 1-clic pour ouvrir en direct • Clic droit pour définir par défaut")
+        lbl_b_hint.setStyleSheet("font-size: 9px; color: #64748b; font-style: italic;")
+        lbl_b_hint.setAlignment(Qt.AlignCenter)
+        b_layout.addWidget(lbl_b_hint)
+
+        layout.addWidget(b_frame)
 
         # ── Boutons Actions : Transférer + Succès + Top 10 ───────────────────
         mid_btns = QHBoxLayout()
@@ -2811,7 +2880,87 @@ class AccountCard(QFrame):
         btn_row.addWidget(self.btn_refresh)
         layout.addLayout(btn_row)
 
+        self.update_browser_display()
+
     # ── Logique ─────────────────────────────────────────────────────────────
+
+    def request_open_browser(self, b_type=""):
+        acc = engine.get_account_info(self.account_id)
+        target = b_type or acc.get("browser_type", "chrome")
+        self.open_browser_requested.emit(self.account_id, target)
+
+    def set_default_browser(self, b_key):
+        engine.set_account_browser(self.account_id, b_key)
+        self.update_browser_display()
+
+    def show_browser_menu(self, b_key, button, pos):
+        menu = QMenu(self)
+        menu.setStyleSheet(DARK_STYLE)
+        b_names = {"chrome": "Google Chrome", "brave": "Brave", "edge": "Microsoft Edge"}
+        target_name = b_names.get(b_key, b_key.title())
+        act_open = menu.addAction(f"🚀 Ouvrir en direct dans {target_name}")
+        act_open.triggered.connect(lambda: self.request_open_browser(b_key))
+        act_default = menu.addAction(f"⭐ Définir {target_name} par défaut pour ce compte")
+        act_default.triggered.connect(lambda: self.set_default_browser(b_key))
+        menu.exec(button.mapToGlobal(pos))
+
+    def update_browser_display(self):
+        acc = engine.get_account_info(self.account_id)
+        b_type = acc.get("browser_type", "chrome").lower()
+        b_map = {
+            "chrome": ("🌐", "Google Chrome"),
+            "brave":  ("🦁", "Brave"),
+            "edge":   ("🌊", "Microsoft Edge"),
+            "opera":  ("🔴", "Opera"),
+        }
+        b_icon, b_display = b_map.get(b_type, ("🌐", "Google Chrome"))
+        self.icon_lbl.setText(b_icon)
+        self.sub_lbl.setText(f"{b_icon} {b_display} (Cliquer pour ouvrir)")
+        if hasattr(self, "lbl_default_badge"):
+            self.lbl_default_badge.setText(f"Défaut : {b_display}")
+
+        # Styles pour les boutons
+        if hasattr(self, "btn_open_chrome"):
+            if b_type == "chrome":
+                self.btn_open_chrome.setText("🌐 Chrome ★")
+                self.btn_open_chrome.setStyleSheet(
+                    "QPushButton { background: #1d4ed8; color: #ffffff; border: 2px solid #60a5fa; border-radius: 7px; font-size: 11px; font-weight: 800; padding: 4px 6px; } "
+                    "QPushButton:hover { background: #2563eb; border-color: #93c5fd; }"
+                )
+            else:
+                self.btn_open_chrome.setText("🌐 Chrome")
+                self.btn_open_chrome.setStyleSheet(
+                    "QPushButton { background: #1e3a8a33; color: #93c5fd; border: 1px solid #1d4ed866; border-radius: 7px; font-size: 11px; font-weight: 600; padding: 4px 6px; } "
+                    "QPushButton:hover { background: #1d4ed8; color: #ffffff; border-color: #60a5fa; }"
+                )
+
+        if hasattr(self, "btn_open_brave"):
+            if b_type == "brave":
+                self.btn_open_brave.setText("🦁 Brave ★")
+                self.btn_open_brave.setStyleSheet(
+                    "QPushButton { background: #c2410c; color: #ffffff; border: 2px solid #fb923c; border-radius: 7px; font-size: 11px; font-weight: 800; padding: 4px 6px; } "
+                    "QPushButton:hover { background: #ea580c; border-color: #fdba74; }"
+                )
+            else:
+                self.btn_open_brave.setText("🦁 Brave")
+                self.btn_open_brave.setStyleSheet(
+                    "QPushButton { background: #7c2d1233; color: #fdba74; border: 1px solid #ea580c66; border-radius: 7px; font-size: 11px; font-weight: 600; padding: 4px 6px; } "
+                    "QPushButton:hover { background: #c2410c; color: #ffffff; border-color: #fb923c; }"
+                )
+
+        if hasattr(self, "btn_open_edge"):
+            if b_type == "edge":
+                self.btn_open_edge.setText("🌊 Edge ★")
+                self.btn_open_edge.setStyleSheet(
+                    "QPushButton { background: #0369a1; color: #ffffff; border: 2px solid #38bdf8; border-radius: 7px; font-size: 11px; font-weight: 800; padding: 4px 6px; } "
+                    "QPushButton:hover { background: #0284c7; border-color: #7dd3fc; }"
+                )
+            else:
+                self.btn_open_edge.setText("🌊 Edge")
+                self.btn_open_edge.setStyleSheet(
+                    "QPushButton { background: #0c4a6e33; color: #7dd3fc; border: 1px solid #0284c766; border-radius: 7px; font-size: 11px; font-weight: 600; padding: 4px 6px; } "
+                    "QPushButton:hover { background: #0284c7; color: #ffffff; border-color: #38bdf8; }"
+                )
 
     def prompt_rename(self):
         new_name, ok = QInputDialog.getText(
@@ -3349,7 +3498,7 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(root)
         self.update_global_stats()
-        self.log("✅  Interface prête. Tous les profils sont centralisés sur Google Chrome !", "success")
+        self.log("✅  Interface prête. Moteur Multi-Navigateurs actif (Google Chrome, Brave, Microsoft Edge) !", "success")
 
     def reload_account_cards(self):
         # Nettoyer les anciennes cartes
@@ -3479,7 +3628,7 @@ class MainWindow(QMainWindow):
                 self.update_global_stats()
                 action_desc = "création" if "/signup" in start_url else "connexion"
                 self.log(f"➕ Compte '{name}' créé avec {b_name} ! Ouverture pour {action_desc}…", "success")
-                self.start_account_setup(new_acc["id"], start_url=start_url)
+                self.start_account_setup(new_acc["id"], start_url=start_url, browser_type=b_type)
         except Exception as e:
             write_debug(f"Erreur prompt_add_account : {e}\n{traceback.format_exc()}")
             self.log(f"✕ Erreur lors de l'ajout du compte : {e}", "error")
@@ -3506,28 +3655,28 @@ class MainWindow(QMainWindow):
             self.update_global_stats()
             self.log(f"🗑️ Compte '{name}' et ses données locales supprimés.", "warning")
 
-    def launch_account_browser(self, account_id):
+    def launch_account_browser(self, account_id, browser_type=None):
         acc = engine.get_account_info(account_id)
         name = acc.get("name", account_id)
-        b_type = acc.get("browser_type", "chrome")
+        b_type = (browser_type or acc.get("browser_type", "chrome")).lower()
         b_name = engine.SUPPORTED_BROWSERS.get(b_type, {}).get("name", "Navigateur")
 
-        # Si un tirage ou sync est en cours sur ce compte, patienter un instant
         if account_id in self.claim_workers or engine.is_account_busy(account_id):
-            self.log(f"⏳ '{name}' effectue un tirage ou une action. Attente de la fin avant d'ouvrir le navigateur...", "warning")
-            for _ in range(12):
-                QApplication.processEvents()
-                time.sleep(0.5)
-                if account_id not in self.claim_workers and not engine.is_account_busy(account_id):
-                    break
+            self.log(f"⏳ '{name}' effectue un tirage. L'ouverture de {b_name} s'effectuera dès libération...", "warning")
 
-        self.log(f"🌐 Lancement de {b_name} pour '{name}'...", "info")
-        ok, msg = engine.open_account_browser(account_id)
-        if ok:
-            self.log(f"✅ {msg}", "success")
-        else:
-            self.log(f"✕ {msg}", "error")
-            QMessageBox.warning(self, "Erreur de lancement", f"Impossible d'ouvrir le navigateur pour '{name}' :\n\n{msg}")
+        worker = BrowserLaunchWorker(account_id, browser_type=b_type)
+        worker.log_signal.connect(self.log)
+        def on_done(aid, ok, msg):
+            if ok:
+                self.log(f"✅ {msg}", "success")
+            else:
+                self.log(f"✕ {msg}", "error")
+                QMessageBox.warning(self, "Erreur de lancement", f"Impossible d'ouvrir {b_name} pour '{name}' :\n\n{msg}")
+        worker.finished_signal.connect(on_done)
+        worker.start()
+        if not hasattr(self, "_active_bg_workers"):
+            self._active_bg_workers = []
+        self._active_bg_workers.append(worker)
 
     # ── Slots & Logic ────────────────────────────────────────────────────────
 
@@ -3883,7 +4032,7 @@ class MainWindow(QMainWindow):
         self.log(f"↻  Actualisation : {title}…", "info")
         self.trigger_claim_cycle([account_id])
 
-    def start_account_setup(self, account_id, start_url="https://wiki-masters.com/login"):
+    def start_account_setup(self, account_id, start_url="https://wiki-masters.com/login", browser_type=None):
         if self.setup_worker and self.setup_worker.isRunning():
             self.log("Fermeture de la configuration précédente…", "warning")
             engine.close_active_setup()
@@ -3897,11 +4046,11 @@ class MainWindow(QMainWindow):
 
         acc = engine.get_account_info(account_id)
         name = acc.get("name", account_id)
-        b_type = acc.get("browser_type", "chrome")
+        b_type = (browser_type or acc.get("browser_type", "chrome")).lower()
         b_name = engine.SUPPORTED_BROWSERS.get(b_type, {}).get("name", "Navigateur")
         action_name = "création / inscription" if "/signup" in start_url else "connexion"
         self.log(f"🔑  Ouverture de {b_name} pour {name} ({action_name})…", "info")
-        self.setup_worker = SetupWorker(account_id, start_url=start_url)
+        self.setup_worker = SetupWorker(account_id, start_url=start_url, browser_type=b_type)
         self.setup_worker.log_signal.connect(self.log)
         self.setup_worker.finished_signal.connect(self.handle_setup_finished)
         self.setup_worker.start()
