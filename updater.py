@@ -15,7 +15,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent.resolve()
 VERSION_FILE = BASE_DIR / "version.json"
 
-DEFAULT_REPO = "priouzob/wikimasters-autoclaim"
+DEFAULT_REPO = "priouzob/fdeuihuhoifzuhoefezhuo"
 DEFAULT_BRANCH = "main"
 DEFAULT_FILES = ["engine.py", "gui.py", "stealth.py", "updater.py", "transfer.py"]
 
@@ -60,7 +60,7 @@ def fetch_remote_version_info(timeout=3):
 
     req = urllib.request.Request(
         url,
-        headers={"User-Agent": "WikiMasters-AutoClaim-Updater/1.0"}
+        headers={"User-Agent": "Mozilla/5.0"}
     )
     with urllib.request.urlopen(req, timeout=timeout) as response:
         content = response.read().decode("utf-8")
@@ -138,7 +138,7 @@ def perform_update(status_callback=None, timeout=5):
 
             req = urllib.request.Request(
                 file_url,
-                headers={"User-Agent": "WikiMasters-AutoClaim-Updater/1.0"}
+                headers={"User-Agent": "Mozilla/5.0"}
             )
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 data = resp.read()

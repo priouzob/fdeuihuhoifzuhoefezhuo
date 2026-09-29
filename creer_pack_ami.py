@@ -44,7 +44,7 @@ def create_pack():
         for fname in FILES_TO_INCLUDE:
             fpath = BASE_DIR / fname
             if fpath.exists():
-                zf.write(fpath, arcname=f"wikimasters-autoclaim/{fname}")
+                zf.write(fpath, arcname=f"fdeuihuhoifzuhoefezhuo/{fname}")
                 print(f"  [+] Inclus : {fname}")
             else:
                 print(f"  [!] Fichier manquant (ignoré) : {fname}")
@@ -59,7 +59,7 @@ def create_pack():
             "accounts": []
         }
         zf.writestr(
-            "wikimasters-autoclaim/config.json",
+            "fdeuihuhoifzuhoefezhuo/config.json",
             json.dumps(default_config, indent=2, ensure_ascii=False)
         )
         print("  [+] Inclus : config.json vierge (0 compte, 0 cookie)")
