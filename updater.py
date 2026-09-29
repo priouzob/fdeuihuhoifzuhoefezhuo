@@ -17,7 +17,7 @@ VERSION_FILE = BASE_DIR / "version.json"
 
 DEFAULT_REPO = "priouzob/wikimasters-autoclaim"
 DEFAULT_BRANCH = "main"
-DEFAULT_FILES = ["engine.py", "gui.py", "stealth.py", "updater.py"]
+DEFAULT_FILES = ["engine.py", "gui.py", "stealth.py", "updater.py", "transfer.py"]
 
 def load_version_info():
     if VERSION_FILE.exists():

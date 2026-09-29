@@ -2670,6 +2670,9 @@ class MainWindow(QMainWindow):
     def claim_achievements_for_account(self, account_id):
         card = self.account_cards.get(account_id)
         name = card.title_text if card else account_id
+        if account_id in self.claim_workers:
+            self.log(f"[{name}] 🏆 Ce compte est déjà en cours de tirage : les succès sont vérifiés et réclamés en direct sans interruption !", "info")
+            return
         self.log(f"[{name}] 🏆 Réclamation des succès en arrière-plan...", "info")
         worker = ClaimAchievementsWorker(account_id)
         worker.log_signal.connect(self.log)
@@ -2679,6 +2682,8 @@ class MainWindow(QMainWindow):
             self.update_global_stats()
             if claimed > 0:
                 self.play_chime()
+                self.log(f"[{name}] 🎁 {claimed} succès débloqué(s) ! Lancement immédiat de l'ouverture des éventuels nouveaux paquets...", "success")
+                self.trigger_claim_cycle([account_id])
         worker.finished_signal.connect(on_done)
         worker.start()
         if not hasattr(self, "_active_bg_workers"):
@@ -2688,6 +2693,9 @@ class MainWindow(QMainWindow):
     def sync_friends_for_account(self, account_id):
         card = self.account_cards.get(account_id)
         name = card.title_text if card else account_id
+        if account_id in self.claim_workers:
+            self.log(f"[{name}] 🤝 Ce compte est déjà en cours de tirage : les amis sont synchronisés en direct !", "info")
+            return
         self.log(f"[{name}] 🤝 Synchronisation des amis...", "info")
         worker = SyncFriendsWorker(account_id)
         worker.log_signal.connect(self.log)
@@ -2699,9 +2707,15 @@ class MainWindow(QMainWindow):
 
     def sync_all_friends(self):
         self.log("🤝 Synchronisation et interconnexion de tous les comptes...", "info")
-        configured = [acc["id"] for acc in engine.get_accounts() if engine.is_account_configured(acc["id"])]
+        configured = [
+            acc["id"] for acc in engine.get_accounts()
+            if engine.is_account_configured(acc["id"]) and acc["id"] not in self.claim_workers
+        ]
         if not configured:
-            self.log("Aucun compte configuré.", "warning")
+            if self.claim_workers:
+                self.log("🤝 Les comptes actuellement en cours de tirage synchronisent automatiquement leurs amis en arrière-plan.", "info")
+            else:
+                self.log("Aucun compte configuré.", "warning")
             return
         worker = SyncFriendsWorker(configured[0])
         worker.log_signal.connect(self.log)
