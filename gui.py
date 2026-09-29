@@ -2524,6 +2524,13 @@ def main():
         window.show()
         window.raise_()
         window.activateWindow()
+        try:
+            import ctypes
+            hwnd = int(window.winId())
+            ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+            ctypes.windll.user32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
         write_debug("MainWindow affichée avec succès, entrée dans app.exec()...")
         sys.exit(app.exec())
     except Exception as e:
