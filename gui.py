@@ -3639,13 +3639,24 @@ class MainWindow(QMainWindow):
             else:
                 self.log("Aucun compte configuré.", "warning")
             return
-        worker = SyncFriendsWorker(configured[0])
-        worker.log_signal.connect(self.log)
-        worker.finished_signal.connect(lambda aid: self.log("✓ Tous les comptes sont interconnectés en amis !", "success"))
-        worker.start()
+
         if not hasattr(self, "_active_bg_workers"):
             self._active_bg_workers = []
-        self._active_bg_workers.append(worker)
+
+        finished_count = [0]
+        total = len(configured)
+
+        for acc_id in configured:
+            worker = SyncFriendsWorker(acc_id)
+            worker.log_signal.connect(self.log)
+            def _on_friend_done(aid, fc=finished_count, t=total):
+                fc[0] += 1
+                if fc[0] >= t:
+                    self.log("✅ Tous les comptes sont interconnectés en amis !", "success")
+            worker.finished_signal.connect(_on_friend_done)
+            worker.start()
+            self._active_bg_workers.append(worker)
+
 
     def prompt_add_account(self):
         try:

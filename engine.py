@@ -996,19 +996,13 @@ def claim_account_achievements(page_or_context, account_name, status_callback=No
 def sync_account_friends(page, current_account, all_accounts, status_callback=None):
     """
     Interconnecte automatiquement tous les comptes de config.json en tant qu'amis :
-    1. Accepte toutes les demandes d'amis en attente.
-    2. Envoie des demandes d'amis aux autres comptes enregistrés qui ne sont pas encore amis.
+    1. Accepte toutes les demandes d'amis en attente (accept-all + PATCH individuels).
+    2. Envoie des demandes d'amis aux autres comptes qui ne sont ni amis ni en attente.
     """
     try:
         curr_name = current_account.get("name", current_account.get("id"))
-        # 1. Accepter toutes les demandes d'amis entrantes
-        page.evaluate("""async () => {
-            try {
-                await fetch('/api/friends/accept-all', { method: 'POST' });
-            } catch(e) {}
-        }""")
 
-        # 2. Récupérer les amitiés existantes
+        # 1. Récupérer les amitiés AVANT l'accept-all pour identifier les pending entrantes
         friends_data = page.evaluate("""async () => {
             try {
                 const res = await fetch('/api/friends');
@@ -1016,47 +1010,108 @@ def sync_account_friends(page, current_account, all_accounts, status_callback=No
             } catch(e) {}
             return null;
         }""")
-
         friendships = (friends_data or {}).get("friendships", [])
-        known_friends = set()
-        for f in friendships:
-            addr = (f.get("addressee") or {}).get("username", "").lower()
-            req = (f.get("requester") or {}).get("username", "").lower()
-            if addr:
-                known_friends.add(addr)
-            if req:
-                known_friends.add(req)
 
-        # 3. Pour chaque autre compte activé
+        # Récupérer l'ID de l'utilisateur courant via /api/guilds
+        my_user_id = page.evaluate("""async () => {
+            try {
+                const res = await fetch('/api/guilds');
+                if (!res.ok) return null;
+                const data = await res.json();
+                const membership = (data.guilds || [])[0]?.membership;
+                return membership?.user_id || null;
+            } catch(e) { return null; }
+        }""")
+
+        # 2. Accepter toutes les demandes entrantes (accept-all en masse)
+        page.evaluate("""async () => {
+            try { await fetch('/api/friends/accept-all', { method: 'POST' }); } catch(e) {}
+        }""")
+
+        # Aussi accepter individuellement les pending où je suis addressee (robustesse)
+        if my_user_id:
+            for f in friendships:
+                if f.get("status") == "pending":
+                    addressee = (f.get("addressee") or {})
+                    if addressee.get("id") == my_user_id:
+                        fid = f.get("id")
+                        if fid:
+                            page.evaluate("""async (fid) => {
+                                try {
+                                    await fetch(`/api/friends/${fid}`, {
+                                        method: 'PATCH',
+                                        headers: {'Content-Type': 'application/json'},
+                                        body: JSON.stringify({action: 'accept'})
+                                    });
+                                } catch(e) {}
+                            }""", fid)
+
+        # 3. Construire les ensembles : amis acceptés et demandes sortantes en attente
+        accepted_friends = set()   # username → déjà ami
+        pending_outgoing = set()   # username → demande envoyée, pas encore acceptée
+
+        for f in friendships:
+            status = f.get("status", "")
+            req_name = (f.get("requester") or {}).get("username", "").lower()
+            addr_name = (f.get("addressee") or {}).get("username", "").lower()
+            req_id   = (f.get("requester") or {}).get("id", "")
+            curr_name_lower = curr_name.lower()
+
+            if status == "accepted":
+                # Ajouter l'autre personne (pas soi-même)
+                if req_name and req_name != curr_name_lower:
+                    accepted_friends.add(req_name)
+                if addr_name and addr_name != curr_name_lower:
+                    accepted_friends.add(addr_name)
+            elif status == "pending":
+                # Demande sortante = je suis le requester
+                if my_user_id and req_id == my_user_id:
+                    if addr_name:
+                        pending_outgoing.add(addr_name)
+
+        # 4. Pour chaque autre compte activé, envoyer une demande si nécessaire
         for other in all_accounts:
             other_name = other.get("name", "").strip()
             if not other_name or other_name.lower() == curr_name.lower():
                 continue
-            if other_name.lower() not in known_friends:
-                # Chercher et envoyer la demande
-                search_res = page.evaluate("""async (q) => {
-                    try {
-                        const r = await fetch(`/api/friends/search?q=${encodeURIComponent(q)}`);
-                        return await r.json();
-                    } catch(e) { return null; }
-                }""", other_name)
-                
-                users = (search_res or {}).get("users", [])
-                target_user = next((u for u in users if u.get("username", "").lower() == other_name.lower()), None)
-                if target_user and not target_user.get("friendship"):
+            other_lower = other_name.lower()
+            if other_lower in accepted_friends:
+                continue  # Déjà ami
+            if other_lower in pending_outgoing:
+                continue  # Demande déjà envoyée
+
+            # Chercher l'utilisateur et envoyer la demande
+            search_res = page.evaluate("""async (q) => {
+                try {
+                    const r = await fetch(`/api/friends/search?q=${encodeURIComponent(q)}`);
+                    if (r.ok) return await r.json();
+                } catch(e) {}
+                return null;
+            }""", other_name)
+
+            users = (search_res or {}).get("users", [])
+            target_user = next(
+                (u for u in users if u.get("username", "").lower() == other_lower),
+                None
+            )
+            if target_user:
+                target_id = target_user.get("id")
+                if target_id:
                     page.evaluate("""async (id) => {
                         try {
                             await fetch('/api/friends', {
-                                 method: 'POST',
-                                 headers: {'Content-Type': 'application/json'},
-                                 body: JSON.stringify({addressee_id: id})
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({addressee_id: id})
                             });
                         } catch(e) {}
-                    }""", target_user.get("id"))
+                    }""", target_id)
                     safe_notify(status_callback, f"[{curr_name}] 🤝 Demande d'ami envoyée à {other_name}", "info")
-                    human_delay(0.5, 1.2)
-    except Exception:
-        pass
+                    human_delay(0.8, 1.5)
+            else:
+                safe_notify(status_callback, f"[{curr_name}] ⚠️ Utilisateur introuvable : {other_name}", "warning")
+    except Exception as e:
+        safe_notify(status_callback, f"[{curr_name}] ❌ Erreur sync amis : {e}", "error")
 
 def run_claim_achievements_standalone(account_id, status_callback=None):
     """Exécute manuellement la réclamation des succès pour un compte."""
