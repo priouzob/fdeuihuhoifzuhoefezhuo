@@ -275,78 +275,603 @@ class ImageModal(QDialog):
 class HistoryModal(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Historique des tirages WikiMasters")
-        self.resize(840, 580)
-        self.setStyleSheet(DARK_STYLE)
+        self.setWindowTitle("📜 Historique des Tirages — WikiMasters Companion")
+        self.resize(920, 680)
+        self.setMinimumSize(780, 520)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint | Qt.WindowMinimizeButtonHint)
+        self.setStyleSheet(DARK_STYLE + f"QDialog{{background:{C_BG};}}")
+
+        self.history_data = engine.load_history()
+        self.accounts = engine.get_accounts()
+
+        self.init_ui()
+        self.apply_filter()
+
+    def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(22, 20, 22, 20)
         layout.setSpacing(14)
 
+        # ── Header ──
         hdr = QHBoxLayout()
-        title_lbl = QLabel("📜  Historique des tirages automatiques")
-        title_lbl.setStyleSheet(f"font-size:16px; font-weight:700; color:{C_ACCENT2};")
+        title_lbl = QLabel("📜  Historique des Tirages Automatiques")
+        title_lbl.setStyleSheet(f"font-size:18px; font-weight:800; color:{C_ACCENT2};")
         hdr.addWidget(title_lbl)
+
+        self.lbl_count = QLabel("")
+        self.lbl_count.setStyleSheet(f"font-size:12px; color:{C_MUTED}; font-weight:600; margin-left:12px;")
+        hdr.addWidget(self.lbl_count)
         hdr.addStretch()
 
         btn_clear = QPushButton("🗑  Tout effacer")
         btn_clear.setObjectName("btnDanger")
         btn_clear.setObjectName("btnSmall")
+        btn_clear.setToolTip("Purger l'historique complet des tirages")
         btn_clear.clicked.connect(self.clear_history)
         hdr.addWidget(btn_clear)
         layout.addLayout(hdr)
 
-        layout.addWidget(make_separator())
+        # ── Barre de Filtres ──
+        filter_frame = QFrame()
+        filter_frame.setStyleSheet(f"background:{C_SURFACE}; border:1px solid {C_BORDER}; border-radius:10px; padding:6px 12px;")
+        fh = QHBoxLayout(filter_frame)
+        fh.setContentsMargins(8, 6, 8, 6)
+        fh.setSpacing(12)
 
-        self.list_widget = QListWidget()
-        self.list_widget.setStyleSheet(
-            f"QListWidget{{background:{C_SURFACE}; border:1px solid {C_BORDER}; border-radius:10px;}}"
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("🔍  Rechercher par nom de carte (ex: Paris, Salins...)")
+        self.search_input.setStyleSheet(
+            f"QLineEdit {{ background:{C_CARD}; border:1px solid {C_BORDER2}; border-radius:8px; padding:6px 12px; color:{C_TEXT}; font-size:12px; }} "
+            f"QLineEdit:focus {{ border-color:{C_ACCENT}; }}"
         )
-        layout.addWidget(self.list_widget)
-        self.refresh_list()
+        self.search_input.textChanged.connect(self.apply_filter)
+        fh.addWidget(self.search_input, 2)
 
-        btn_close = QPushButton("Fermer")
+        self.cb_account = QComboBox()
+        self.cb_account.setStyleSheet(
+            f"QComboBox {{ background:{C_CARD}; border:1px solid {C_BORDER2}; border-radius:8px; padding:6px 10px; color:{C_TEXT}; font-size:12px; font-weight:600; }}"
+        )
+        self.cb_account.addItem("👤 Tous les comptes", "")
+        for acc in self.accounts:
+            self.cb_account.addItem(f"👤 {acc.get('name', acc['id'])}", acc["id"])
+        self.cb_account.currentIndexChanged.connect(self.apply_filter)
+        fh.addWidget(self.cb_account, 1)
+
+        self.cb_rarity = QComboBox()
+        self.cb_rarity.setStyleSheet(
+            f"QComboBox {{ background:{C_CARD}; border:1px solid {C_BORDER2}; border-radius:8px; padding:6px 10px; color:{C_TEXT}; font-size:12px; font-weight:600; }}"
+        )
+        self.cb_rarity.addItem("⭐ Toutes les raretés", "")
+        self.cb_rarity.addItem("👑 Légendaire (L)", "L")
+        self.cb_rarity.addItem("💎 Ultra Rare (UR)", "UR")
+        self.cb_rarity.addItem("⭐ Super Rare (SR)", "SR")
+        self.cb_rarity.addItem("✨ Rare (R)", "R")
+        self.cb_rarity.addItem("🔷 Peu Commune (PC)", "PC")
+        self.cb_rarity.addItem("⚪ Commune (C)", "C")
+        self.cb_rarity.currentIndexChanged.connect(self.apply_filter)
+        fh.addWidget(self.cb_rarity, 1)
+
+        btn_reset = QPushButton("✕ Réinitialiser")
+        btn_reset.setStyleSheet(
+            f"QPushButton {{ background:{C_CARD}; border:1px solid {C_BORDER2}; border-radius:8px; padding:6px 10px; font-size:11px; }} "
+            f"QPushButton:hover {{ border-color:{C_ACCENT}; color:{C_ACCENT}; }}"
+        )
+        btn_reset.clicked.connect(self.reset_filters)
+        fh.addWidget(btn_reset)
+
+        layout.addWidget(filter_frame)
+
+        # ── Scroll Area pour la liste des tirages ──
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        self.items_container = QWidget()
+        self.items_container.setStyleSheet("background: transparent;")
+        self.items_layout = QVBoxLayout(self.items_container)
+        self.items_layout.setContentsMargins(0, 4, 0, 4)
+        self.items_layout.setSpacing(10)
+
+        self.scroll.setWidget(self.items_container)
+        layout.addWidget(self.scroll, 1)
+
+        # ── Bas de page ──
+        layout.addWidget(make_separator())
+        b_layout = QHBoxLayout()
+        b_layout.addStretch()
+        btn_close = QPushButton("✕  Fermer")
+        btn_close.setObjectName("btnPrimary")
         btn_close.setFixedWidth(120)
         btn_close.clicked.connect(self.close)
-        layout.addWidget(btn_close, alignment=Qt.AlignCenter)
+        b_layout.addWidget(btn_close)
+        b_layout.addStretch()
+        layout.addLayout(b_layout)
 
-    def refresh_list(self):
-        self.list_widget.clear()
-        history = engine.load_history()
-        if not history:
-            item = QListWidgetItem("  Aucun tirage enregistré pour le moment.")
-            item.setForeground(QColor(C_MUTED))
-            self.list_widget.addItem(item)
+    def reset_filters(self):
+        self.search_input.clear()
+        self.cb_account.setCurrentIndex(0)
+        self.cb_rarity.setCurrentIndex(0)
+
+    def apply_filter(self):
+        query = self.search_input.text().strip().lower()
+        acc_filter = self.cb_account.currentData()
+        rarity_filter = self.cb_rarity.currentData()
+
+        while self.items_layout.count():
+            item = self.items_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        filtered = []
+        for entry in self.history_data:
+            # Filtre Compte
+            if acc_filter and entry.get("browser_key") != acc_filter:
+                continue
+
+            # Filtre Rareté
+            rarities = entry.get("rarities", [])
+            if rarity_filter and rarity_filter not in [str(r).upper() for r in rarities if r]:
+                continue
+
+            # Filtre Texte (Recherche titre de carte)
+            cards = entry.get("cards", [])
+            if query:
+                matched = any(query in str(c).lower() for c in cards)
+                if not matched and query not in entry.get("browser", "").lower():
+                    continue
+
+            filtered.append(entry)
+
+        self.lbl_count.setText(f"({len(filtered)} session(s) affichée(s) sur {len(self.history_data)})")
+
+        if not filtered:
+            empty_frame = QFrame()
+            empty_frame.setStyleSheet(f"background:{C_SURFACE}; border:1px dashed {C_BORDER2}; border-radius:12px; padding:30px;")
+            ev = QVBoxLayout(empty_frame)
+            ev.setAlignment(Qt.AlignCenter)
+            lbl_empty = QLabel("🔍 Aucun tirage ne correspond à vos critères de recherche.")
+            lbl_empty.setStyleSheet(f"font-size:13px; color:{C_MUTED}; border:none; background:transparent;")
+            lbl_empty.setAlignment(Qt.AlignCenter)
+            ev.addWidget(lbl_empty)
+            self.items_layout.addWidget(empty_frame)
+            self.items_layout.addStretch()
             return
 
-        for h in history:
-            ts = h.get("timestamp", "")
-            bkey = h.get("browser_key", "")
-            bname = h.get("browser", bkey)
-            packs = h.get("packs_count", 1)
-            rarity = h.get("rarity_summary", "")
-            cards = h.get("cards", [])
+        for entry in filtered:
+            card_row = QFrame()
+            card_row.setStyleSheet(
+                f"QFrame {{ background: {C_SURFACE}; border: 1px solid {C_BORDER}; border-radius: 10px; padding: 10px; }} "
+                f"QFrame:hover {{ border-color: {C_BORDER2}; background: #131b26; }}"
+            )
+            rv = QVBoxLayout(card_row)
+            rv.setContentsMargins(12, 10, 12, 10)
+            rv.setSpacing(8)
 
-            rarity_part = f"  ⭐ {rarity}" if rarity else ""
-            cards_part = "\n    • " + "\n    • ".join(cards) if cards else ""
-            text = f"🌐 {bname}  —  {ts}  —  {packs} paquet(s){rarity_part}{cards_part}"
+            # Ligne 1 : Compte + Date + Paquets + Bouton capture
+            top_h = QHBoxLayout()
+            top_h.setSpacing(10)
 
-            item = QListWidgetItem(text)
-            item.setForeground(QColor(C_TEXT))
-            self.list_widget.addItem(item)
+            bname = entry.get("browser", entry.get("browser_key", "Compte"))
+            lbl_acc = QLabel(f"👤 {bname}")
+            lbl_acc.setStyleSheet(f"font-size:13px; font-weight:700; color:{C_ACCENT2};")
+            top_h.addWidget(lbl_acc)
+
+            ts = entry.get("timestamp", "")
+            lbl_ts = QLabel(f"📅 {ts}")
+            lbl_ts.setStyleSheet(f"font-size:11px; color:{C_MUTED};")
+            top_h.addWidget(lbl_ts)
+
+            packs = entry.get("packs_count", 1)
+            lbl_p = QLabel(f"📦 {packs} paquet(s)")
+            lbl_p.setStyleSheet("font-size:11px; font-weight:600; color:#fbbf24; background:#78350f33; padding:2px 8px; border-radius:6px;")
+            top_h.addWidget(lbl_p)
+
+            r_summary = entry.get("rarity_summary", "")
+            if r_summary:
+                lbl_rs = QLabel(f"⭐ {r_summary}")
+                lbl_rs.setStyleSheet(f"font-size:11px; color:{C_TEAL}; font-weight:600;")
+                top_h.addWidget(lbl_rs)
+
+            top_h.addStretch()
+
+            shot = entry.get("screenshot")
+            if shot and os.path.exists(shot):
+                btn_view = QPushButton("📷  Voir tirage")
+                btn_view.setStyleSheet(
+                    f"QPushButton {{ background: #1e293b; color: #94a3b8; border: 1px solid {C_BORDER}; "
+                    f"border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 600; }} "
+                    f"QPushButton:hover {{ border-color: {C_ACCENT}; color: #38bdf8; }}"
+                )
+                btn_view.setCursor(Qt.PointingHandCursor)
+                btn_view.clicked.connect(lambda checked, s=shot, t=f"{bname} ({ts})": self.view_shot(s, t))
+                top_h.addWidget(btn_view)
+
+            rv.addLayout(top_h)
+
+            # Ligne 2 : Liste des cartes avec badges de rareté
+            cards = entry.get("cards", [])
+            rarities = entry.get("rarities", [])
+            if cards:
+                cards_col = QVBoxLayout()
+                cards_col.setSpacing(4)
+
+                for c_title, r_code in zip(cards, rarities):
+                    if not c_title:
+                        continue
+                    r_upper = str(r_code).upper().strip() if r_code else "C"
+                    r_info = engine.RARITY_MAP.get(r_upper, {"color": "#94a3b8", "bg": "#1e293b", "badge": r_upper})
+
+                    row_c = QHBoxLayout()
+                    row_c.setSpacing(8)
+
+                    badge = QLabel(f" {r_info.get('badge', r_upper)} ")
+                    badge.setStyleSheet(
+                        f"color: {r_info['color']}; background: {r_info['bg']}; "
+                        f"border: 1px solid {r_info['color']}66; border-radius: 4px; "
+                        f"font-size: 10px; font-weight: 800; padding: 2px 4px;"
+                    )
+                    badge.setFixedWidth(50)
+                    badge.setAlignment(Qt.AlignCenter)
+
+                    name_c = QLabel(c_title)
+                    if query and query in c_title.lower():
+                        name_c.setStyleSheet(f"font-size: 12px; font-weight: 700; color: #38bdf8; background: #0284c722; padding: 1px 4px; border-radius: 4px;")
+                    else:
+                        name_c.setStyleSheet(f"font-size: 12px; color: {C_TEXT}; font-weight: 500;")
+
+                    row_c.addWidget(badge)
+                    row_c.addWidget(name_c)
+                    row_c.addStretch()
+                    cards_col.addLayout(row_c)
+
+                rv.addLayout(cards_col)
+
+            self.items_layout.addWidget(card_row)
+
+        self.items_layout.addStretch()
+
+    def view_shot(self, shot_path, title):
+        if shot_path and os.path.exists(shot_path):
+            dlg = ImageModal(shot_path, f"Tirage — {title}", self)
+            dlg.exec()
 
     def clear_history(self):
         confirm = QMessageBox.question(
             self, "Confirmation",
-            "Effacer tout l'historique des tirages ?",
+            "Effacer tout l'historique des tirages ?\n\nVos statistiques de collection et votre Top 10 ne seront pas affectés.",
             QMessageBox.Yes | QMessageBox.No
         )
         if confirm == QMessageBox.Yes:
             try:
                 with open(engine.HISTORY_FILE, "w", encoding="utf-8") as f:
                     json.dump([], f)
-                self.refresh_list()
+                self.history_data = []
+                self.apply_filter()
             except Exception:
                 pass
+
+class FleetStatsModal(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("📊 Statistiques Globales de la Flotte — WikiMasters Companion")
+        self.resize(860, 680)
+        self.setMinimumSize(720, 520)
+        self.setStyleSheet(DARK_STYLE + f"QDialog{{background:{C_BG};}}")
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(14)
+
+        # ── Header ──
+        h_layout = QHBoxLayout()
+        icon = QLabel("📊")
+        icon.setStyleSheet("font-size: 26px;")
+        t_col = QVBoxLayout()
+        t_col.setSpacing(2)
+        title = QLabel("Statistiques Globales de la Flotte")
+        title.setStyleSheet("font-size: 18px; font-weight: 800; color: #38bdf8;")
+        subtitle = QLabel("Bilan consolidé de toutes les cartes, tirages et raretés possédées par vos comptes.")
+        subtitle.setStyleSheet(f"font-size: 11px; color: {C_MUTED};")
+        t_col.addWidget(title)
+        t_col.addWidget(subtitle)
+        h_layout.addWidget(icon)
+        h_layout.addLayout(t_col)
+        h_layout.addStretch()
+        layout.addLayout(h_layout)
+
+        layout.addWidget(make_separator())
+
+        # ── Données ──
+        accounts = engine.get_accounts()
+        col_stats = engine.load_collection_stats()
+        lifetime = engine.load_lifetime_stats()
+
+        total_cards_fleet = sum(cs.get("total", 0) for cs in col_stats.values())
+        total_packs_fleet = sum(s.get("total_packs", 0) for s in lifetime.values()) or sum(h.get("packs_count", 1) for h in engine.load_history())
+
+        rarity_fleet = {"L": 0, "UR": 0, "SR": 0, "R": 0, "PC": 0, "C": 0}
+        for cs in col_stats.values():
+            rc = cs.get("rarityCounts", {})
+            for code in rarity_fleet:
+                rarity_fleet[code] += rc.get(code, 0)
+
+        total_rares_plus = rarity_fleet["L"] + rarity_fleet["UR"] + rarity_fleet["SR"] + rarity_fleet["R"]
+
+        # ── 4 Cartes de métriques clés ──
+        metrics_row = QHBoxLayout()
+        metrics_row.setSpacing(12)
+
+        def make_metric(icon_str, title_str, val_str, color_str):
+            f = QFrame()
+            f.setStyleSheet(f"background:{C_SURFACE}; border:1px solid {C_BORDER}; border-radius:12px; padding:12px;")
+            vl = QVBoxLayout(f)
+            vl.setSpacing(4)
+            hl = QHBoxLayout()
+            lbl_i = QLabel(icon_str)
+            lbl_i.setStyleSheet("font-size:18px;")
+            lbl_t = QLabel(title_str)
+            lbl_t.setStyleSheet(f"font-size:11px; color:{C_MUTED}; font-weight:600;")
+            hl.addWidget(lbl_i)
+            hl.addWidget(lbl_t)
+            hl.addStretch()
+            lbl_v = QLabel(val_str)
+            lbl_v.setStyleSheet(f"font-size:18px; font-weight:800; color:{color_str};")
+            vl.addLayout(hl)
+            vl.addWidget(lbl_v)
+            return f
+
+        metrics_row.addWidget(make_metric("🃏", "Total Cartes", f"{total_cards_fleet:,}".replace(",", " "), "#22c55e"))
+        metrics_row.addWidget(make_metric("📦", "Total Paquets", f"{total_packs_fleet:,}".replace(",", " "), "#fbbf24"))
+        metrics_row.addWidget(make_metric("⭐", "Rares & Supérieures", f"{total_rares_plus:,}".replace(",", " "), "#a855f7"))
+        metrics_row.addWidget(make_metric("👥", "Comptes Déployés", f"{len(accounts)} compte(s)", "#38bdf8"))
+        layout.addLayout(metrics_row)
+
+        # ── Répartition des Raretés dans la Flotte ──
+        rarity_box = QFrame()
+        rarity_box.setStyleSheet(f"background:{C_SURFACE}; border:1px solid {C_BORDER}; border-radius:12px; padding:16px;")
+        rv = QVBoxLayout(rarity_box)
+        rv.setSpacing(10)
+
+        lbl_r_title = QLabel("📊  Répartition des Raretés de la Flotte")
+        lbl_r_title.setStyleSheet(f"font-size:13px; font-weight:700; color:{C_TEXT};")
+        rv.addWidget(lbl_r_title)
+
+        for code in ["L", "UR", "SR", "R", "PC", "C"]:
+            count = rarity_fleet.get(code, 0)
+            pct = (count / total_cards_fleet * 100) if total_cards_fleet > 0 else 0
+            r_info = engine.RARITY_MAP.get(code, {})
+
+            row = QHBoxLayout()
+            row.setSpacing(12)
+
+            badge = QLabel(f" {r_info.get('badge', code)} ")
+            badge.setStyleSheet(
+                f"color:{r_info.get('color', '#94a3b8')}; background:{r_info.get('bg', '#1e293b')}; "
+                f"border:1px solid {r_info.get('color', '#94a3b8')}66; border-radius:6px; font-size:11px; font-weight:800; padding:3px 6px;"
+            )
+            badge.setFixedWidth(56)
+            badge.setAlignment(Qt.AlignCenter)
+            row.addWidget(badge)
+
+            name_lbl = QLabel(r_info.get("name", code))
+            name_lbl.setStyleSheet(f"font-size:12px; font-weight:600; color:{C_TEXT};")
+            name_lbl.setFixedWidth(110)
+            row.addWidget(name_lbl)
+
+            pb = QProgressBar()
+            pb.setFixedHeight(10)
+            pb.setTextVisible(False)
+            pb.setRange(0, 1000)
+            pb.setValue(int(pct * 10))
+            pb.setStyleSheet(f"""
+                QProgressBar {{ background: {C_CARD}; border: none; border-radius: 5px; }}
+                QProgressBar::chunk {{ background: {r_info.get('color', '#38bdf8')}; border-radius: 5px; }}
+            """)
+            row.addWidget(pb, 1)
+
+            val_lbl = QLabel(f"{count:,}".replace(",", " ") + f" ({pct:.1f}%)")
+            val_lbl.setStyleSheet(f"font-size:11px; font-weight:700; color:{r_info.get('color', '#94a3b8')};")
+            val_lbl.setFixedWidth(120)
+            val_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            row.addWidget(val_lbl)
+
+            rv.addLayout(row)
+
+        layout.addWidget(rarity_box)
+
+        # ── Détail par Compte ──
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        acc_container = QWidget()
+        acc_layout = QVBoxLayout(acc_container)
+        acc_layout.setContentsMargins(0, 4, 0, 4)
+        acc_layout.setSpacing(8)
+
+        for a in accounts:
+            aid = a["id"]
+            aname = a.get("name", aid)
+            astats = col_stats.get(aid, {})
+            atotal = astats.get("total", 0)
+            arc = astats.get("rarityCounts", {})
+
+            af = QFrame()
+            af.setStyleSheet(f"background:{C_SURFACE}; border:1px solid {C_BORDER}; border-radius:10px; padding:10px;")
+            ah = QHBoxLayout(af)
+            ah.setSpacing(12)
+
+            lbl_an = QLabel(f"👤 {aname}")
+            lbl_an.setStyleSheet(f"font-size:13px; font-weight:700; color:{C_ACCENT2};")
+            lbl_an.setFixedWidth(140)
+            ah.addWidget(lbl_an)
+
+            lbl_at = QLabel(f"🃏 {atotal:,}".replace(",", " ") + " cartes")
+            lbl_at.setStyleSheet(f"font-size:12px; font-weight:600; color:{C_TEXT};")
+            lbl_at.setFixedWidth(110)
+            ah.addWidget(lbl_at)
+
+            pills = []
+            if arc.get("L", 0) > 0: pills.append(f"{arc['L']} 👑")
+            if arc.get("UR", 0) > 0: pills.append(f"{arc['UR']} 💎")
+            if arc.get("SR", 0) > 0: pills.append(f"{arc['SR']} ⭐")
+            if arc.get("R", 0) > 0: pills.append(f"{arc['R']} ✨")
+            if arc.get("PC", 0) > 0: pills.append(f"{arc['PC']} 🔷")
+            if arc.get("C", 0) > 0: pills.append(f"{arc['C']} ⚪")
+
+            lbl_ap = QLabel("  ".join(pills) if pills else "En attente de synchro...")
+            lbl_ap.setStyleSheet(f"font-size:11px; font-weight:600; color:{C_MUTED};")
+            ah.addWidget(lbl_ap, 1)
+
+            acc_layout.addWidget(af)
+
+        acc_layout.addStretch()
+        scroll.setWidget(acc_container)
+        layout.addWidget(scroll, 1)
+
+        # ── Bas de page ──
+        layout.addWidget(make_separator())
+        b_box = QHBoxLayout()
+        b_box.addStretch()
+        btn_close = QPushButton("✕  Fermer")
+        btn_close.setObjectName("btnPrimary")
+        btn_close.setFixedWidth(120)
+        btn_close.clicked.connect(self.close)
+        b_box.addWidget(btn_close)
+        b_box.addStretch()
+        layout.addLayout(b_box)
+
+class DiscordSettingsModal(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("🔔 Alertes Discord Webhook — WikiMasters Companion")
+        self.setFixedWidth(560)
+        self.setStyleSheet(DARK_STYLE + f"QDialog{{background:{C_BG};}}")
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(14)
+
+        # ── Header ──
+        h_layout = QHBoxLayout()
+        icon = QLabel("🔔")
+        icon.setStyleSheet("font-size: 26px;")
+        t_col = QVBoxLayout()
+        t_col.setSpacing(2)
+        title = QLabel("Notifications Discord Webhook")
+        title.setStyleSheet("font-size: 17px; font-weight: 800; color: #5865f2;")
+        subtitle = QLabel("Recevez des alertes en direct sur votre serveur Discord lors des tirages rares !")
+        subtitle.setStyleSheet(f"font-size: 11px; color: {C_MUTED};")
+        t_col.addWidget(title)
+        t_col.addWidget(subtitle)
+        h_layout.addWidget(icon)
+        h_layout.addLayout(t_col)
+        h_layout.addStretch()
+        layout.addLayout(h_layout)
+
+        layout.addWidget(make_separator())
+
+        # ── URL Webhook ──
+        settings = engine.get_discord_settings()
+
+        url_lbl = QLabel("URL du Webhook Discord :")
+        url_lbl.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {C_TEXT};")
+        layout.addWidget(url_lbl)
+
+        self.url_input = QLineEdit(settings.get("webhook_url", ""))
+        self.url_input.setPlaceholderText("https://discord.com/api/webhooks/...")
+        self.url_input.setStyleSheet(
+            f"QLineEdit {{ background:{C_SURFACE}; color:{C_TEXT}; border:1px solid {C_BORDER2}; border-radius:8px; padding:9px 12px; font-size:12px; }} "
+            f"QLineEdit:focus {{ border-color:#5865f2; }}"
+        )
+        layout.addWidget(self.url_input)
+
+        hint_lbl = QLabel("💡 Comment créer un webhook : Sur Discord, Clic droit sur votre salon > Paramètres du salon > Intégrations > Webhooks > Nouveau webhook.")
+        hint_lbl.setStyleSheet(f"font-size: 10px; color: {C_MUTED};")
+        hint_lbl.setWordWrap(True)
+        layout.addWidget(hint_lbl)
+
+        # ── Options ──
+        opts_frame = QFrame()
+        opts_frame.setStyleSheet(f"background:{C_SURFACE}; border:1px solid {C_BORDER}; border-radius:10px; padding:12px;")
+        ov = QVBoxLayout(opts_frame)
+        ov.setSpacing(10)
+
+        self.chk_rare_only = QCheckBox("⭐ Notifier uniquement les cartes Rares et plus (R, SR, UR, L)")
+        self.chk_rare_only.setChecked(settings.get("notify_rare_only", True))
+        self.chk_rare_only.setStyleSheet(f"QCheckBox {{ color: {C_TEXT}; font-size: 11px; font-weight: 600; }}")
+        ov.addWidget(self.chk_rare_only)
+
+        self.chk_errors = QCheckBox("🛡️ Notifier les alertes de sécurité (Défi anti-bot bloquant, session expirée)")
+        self.chk_errors.setChecked(settings.get("notify_errors", True))
+        self.chk_errors.setStyleSheet(f"QCheckBox {{ color: {C_TEXT}; font-size: 11px; font-weight: 600; }}")
+        ov.addWidget(self.chk_errors)
+
+        layout.addWidget(opts_frame)
+
+        self.lbl_status = QLabel("")
+        self.lbl_status.setStyleSheet("font-size: 11px; font-weight: 600;")
+        self.lbl_status.setWordWrap(True)
+        layout.addWidget(self.lbl_status)
+
+        layout.addWidget(make_separator())
+
+        # ── Boutons d'action ──
+        b_layout = QHBoxLayout()
+        b_layout.setSpacing(10)
+
+        btn_test = QPushButton("📨  Tester le Webhook")
+        btn_test.setStyleSheet(
+            "QPushButton { background: #1e1b4b; color: #c7d2fe; border: 1px solid #4338ca; border-radius: 8px; padding: 7px 14px; font-size: 11px; font-weight: 700; } "
+            "QPushButton:hover { background: #312e81; color: white; }"
+        )
+        btn_test.clicked.connect(self.test_webhook)
+        b_layout.addWidget(btn_test)
+
+        b_layout.addStretch()
+
+        btn_cancel = QPushButton("Annuler")
+        btn_cancel.clicked.connect(self.reject)
+        b_layout.addWidget(btn_cancel)
+
+        btn_save = QPushButton("💾  Enregistrer")
+        btn_save.setObjectName("btnPrimary")
+        btn_save.setStyleSheet(
+            "QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4f46e5, stop:1 #4338ca); border: 1px solid #6366f1; color: white; font-size: 12px; font-weight: 700; padding: 7px 18px; border-radius: 8px; }"
+        )
+        btn_save.clicked.connect(self.save_settings)
+        b_layout.addWidget(btn_save)
+
+        layout.addLayout(b_layout)
+
+    def test_webhook(self):
+        url = self.url_input.text().strip()
+        if not url:
+            self.lbl_status.setText("❌ Veuillez renseigner une URL de webhook.")
+            self.lbl_status.setStyleSheet("color: #ef4444; font-size: 11px;")
+            return
+        self.lbl_status.setText("Envoi du message de test...")
+        self.lbl_status.setStyleSheet("color: #38bdf8; font-size: 11px;")
+        ok, msg = engine.test_discord_webhook(url)
+        if ok:
+            self.lbl_status.setText("✅ " + msg)
+            self.lbl_status.setStyleSheet("color: #22c55e; font-size: 11px;")
+        else:
+            self.lbl_status.setText("❌ " + msg)
+            self.lbl_status.setStyleSheet("color: #ef4444; font-size: 11px;")
+
+    def save_settings(self):
+        url = self.url_input.text().strip()
+        rare_only = self.chk_rare_only.isChecked()
+        errors = self.chk_errors.isChecked()
+        engine.set_discord_settings(url, rare_only, errors)
+        QMessageBox.information(self, "Enregistré", "Paramètres Discord enregistrés avec succès !")
+        self.accept()
 
 class TopCardsModal(QDialog):
     def __init__(self, initial_account_id=None, parent=None):
@@ -1247,7 +1772,7 @@ class AccountCard(QFrame):
         self.is_claiming     = False
         self.is_captcha_blocked = False
 
-        self.setFixedWidth(310)
+        self.setFixedWidth(320)
         self.setStyleSheet(
             f"QFrame#accountCard {{"
             f"  background: qlineargradient(x1:0,y1:0,x2:0,y2:1,{grad});"
@@ -1425,10 +1950,12 @@ class AccountCard(QFrame):
         self.preview_frame.setCursor(Qt.PointingHandCursor)
         layout.addWidget(self.preview_frame)
 
-        # ── Options modulaires (Auto-succès & Auto-amis) ──────────────────
-        opts_box = QHBoxLayout()
-        opts_box.setSpacing(12)
+        # ── Options modulaires (Auto-succès, Auto-amis, Auto-échanges) ───
+        opts_box = QVBoxLayout()
+        opts_box.setSpacing(4)
 
+        row_opts1 = QHBoxLayout()
+        row_opts1.setSpacing(10)
         self.chk_auto_achievements = QCheckBox("🏆 Auto-succès")
         self.chk_auto_achievements.setChecked(acc.get("auto_achievements", True))
         self.chk_auto_achievements.setToolTip("Réclame automatiquement les succès débloqués et les Wikibidous associés")
@@ -1440,10 +1967,22 @@ class AccountCard(QFrame):
         self.chk_auto_friends.setToolTip("Accepte automatiquement les demandes d'amis et interconnecte tous vos comptes")
         self.chk_auto_friends.setStyleSheet(f"QCheckBox {{ color: {C_TEXT}; font-size: 11px; font-weight: 600; }}")
         self.chk_auto_friends.toggled.connect(lambda v: engine.set_account_option(self.account_id, "auto_friends", v))
+        row_opts1.addWidget(self.chk_auto_achievements)
+        row_opts1.addWidget(self.chk_auto_friends)
+        row_opts1.addStretch()
 
-        opts_box.addWidget(self.chk_auto_achievements)
-        opts_box.addWidget(self.chk_auto_friends)
-        opts_box.addStretch()
+        row_opts2 = QHBoxLayout()
+        row_opts2.setSpacing(10)
+        self.chk_auto_trades = QCheckBox("🔄 Auto-échanges")
+        self.chk_auto_trades.setChecked(acc.get("auto_trades", True))
+        self.chk_auto_trades.setToolTip("Accepte automatiquement tous les échanges entrants sans intervention")
+        self.chk_auto_trades.setStyleSheet(f"QCheckBox {{ color: {C_TEXT}; font-size: 11px; font-weight: 600; }}")
+        self.chk_auto_trades.toggled.connect(lambda v: engine.set_account_option(self.account_id, "auto_trades", v))
+        row_opts2.addWidget(self.chk_auto_trades)
+        row_opts2.addStretch()
+
+        opts_box.addLayout(row_opts1)
+        opts_box.addLayout(row_opts2)
         layout.addLayout(opts_box)
 
         # ── Boutons Milieu : Top 10 + Transférer + Succès + Ouvrir Navigateur ─
@@ -1870,6 +2409,26 @@ class MainWindow(QMainWindow):
         btn_hist.clicked.connect(self.open_history)
         hh.addWidget(btn_hist)
 
+        btn_fleet = QPushButton("📊  Flotte")
+        btn_fleet.setObjectName("btnSmall")
+        btn_fleet.setStyleSheet(
+            "QPushButton { background:#0c4a6e; color:#bae6fd; border:1px solid #0284c7; font-weight:700; border-radius:6px; padding:4px 10px; } "
+            "QPushButton:hover { background:#0369a1; color:white; }"
+        )
+        btn_fleet.setToolTip("Statistiques globales et répartition des raretés de la flotte")
+        btn_fleet.clicked.connect(self.open_fleet_stats)
+        hh.addWidget(btn_fleet)
+
+        btn_discord = QPushButton("🔔  Discord")
+        btn_discord.setObjectName("btnSmall")
+        btn_discord.setStyleSheet(
+            "QPushButton { background:#1e1b4b; color:#c7d2fe; border:1px solid #6366f1; font-weight:700; border-radius:6px; padding:4px 10px; } "
+            "QPushButton:hover { background:#312e81; color:white; }"
+        )
+        btn_discord.setToolTip("Configurer les alertes Discord Webhook (tirages rares, alertes)")
+        btn_discord.clicked.connect(self.open_discord_settings)
+        hh.addWidget(btn_discord)
+
         btn_transfer = QPushButton("🔄  Transférer")
         btn_transfer.setObjectName("btnSmall")
         btn_transfer.setStyleSheet("QPushButton { background:#064e3b; color:#a7f3d0; border:1px solid #059669; font-weight:700; border-radius:6px; padding:4px 10px; } QPushButton:hover { background:#047857; color:white; }")
@@ -1952,7 +2511,7 @@ class MainWindow(QMainWindow):
         # Scroll Area pour les cartes de comptes
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFixedHeight(385)
+        scroll.setFixedHeight(415)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
@@ -2219,6 +2778,14 @@ class MainWindow(QMainWindow):
 
     def open_history(self):
         dlg = HistoryModal(self)
+        dlg.exec()
+
+    def open_fleet_stats(self):
+        dlg = FleetStatsModal(parent=self)
+        dlg.exec()
+
+    def open_discord_settings(self):
+        dlg = DiscordSettingsModal(parent=self)
         dlg.exec()
 
     def check_updates_gui(self, silent_if_none=False):

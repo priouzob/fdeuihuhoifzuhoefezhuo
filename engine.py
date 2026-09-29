@@ -632,6 +632,101 @@ def set_account_option(account_id, option_key, value):
         pass
     return False
 
+def send_discord_notification(title, description, color=0x38bdf8, fields=None):
+    """Envoie une notification Discord Webhook riche et asynchrone sans bloquer l'application."""
+    config = load_config()
+    webhook_url = config.get("discord_webhook", "").strip()
+    if not webhook_url:
+        return False
+
+    import threading
+    import urllib.request
+
+    def _send():
+        try:
+            embed = {
+                "title": title,
+                "description": description,
+                "color": color,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "footer": {"text": "WikiMasters Auto-Claimer • Companion"}
+            }
+            if fields:
+                embed["fields"] = fields
+
+            payload = json.dumps({
+                "username": "WikiMasters Companion",
+                "embeds": [embed]
+            })
+            req = urllib.request.Request(
+                webhook_url,
+                data=payload.encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) WikiMasters-Companion"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=8) as response:
+                pass
+        except Exception:
+            pass
+
+    threading.Thread(target=_send, daemon=True).start()
+    return True
+
+def test_discord_webhook(webhook_url):
+    """Teste immédiatement un Webhook Discord avec un message d'essai."""
+    if not webhook_url or not webhook_url.strip():
+        return False, "URL du webhook vide."
+    import urllib.request
+
+    try:
+        payload = json.dumps({
+            "username": "WikiMasters Companion",
+            "embeds": [{
+                "title": "✅ Connexion Discord Réussie !",
+                "description": "Le webhook WikiMasters Auto-Claimer est parfaitement configuré.\nVous recevrez désormais des alertes pour vos cartes rares et vos comptes !",
+                "color": 0x22c55e,
+                "fields": [
+                    {"name": "Statut", "value": "🟢 Opérationnel", "inline": True},
+                    {"name": "Mode", "value": "Multi-Comptes Furtif", "inline": True}
+                ],
+                "footer": {"text": "WikiMasters Auto-Claimer"}
+            }]
+        })
+        req = urllib.request.Request(
+            webhook_url.strip(),
+            data=payload.encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) WikiMasters-Companion"
+            }
+        )
+        with urllib.request.urlopen(req, timeout=6) as response:
+            if 200 <= response.status < 300:
+                return True, "Message de test envoyé avec succès sur Discord !"
+            return False, f"Code de réponse Discord : {response.status}"
+    except Exception as e:
+        return False, f"Erreur de connexion : {e}"
+
+def get_discord_settings():
+    """Récupère les paramètres actuels de Discord Webhook."""
+    cfg = load_config()
+    return {
+        "webhook_url": cfg.get("discord_webhook", ""),
+        "notify_rare_only": cfg.get("discord_notify_rare_only", True),
+        "notify_errors": cfg.get("discord_notify_errors", True)
+    }
+
+def set_discord_settings(webhook_url, notify_rare_only=True, notify_errors=True):
+    """Enregistre les paramètres Discord Webhook."""
+    cfg = load_config()
+    cfg["discord_webhook"] = webhook_url.strip() if webhook_url else ""
+    cfg["discord_notify_rare_only"] = bool(notify_rare_only)
+    cfg["discord_notify_errors"] = bool(notify_errors)
+    save_config(cfg)
+    return True
+
 _LAST_ACHIEVEMENTS_CHECK = {}
 
 def should_check_account_achievements(account_id, cooldown_seconds=600):
@@ -1188,6 +1283,13 @@ def claim_account(account_id, headless=True, status_callback=None):
                     if not has_content:
                         context.close()
                         kill_browser_processes(account_id)
+                        cfg = load_config()
+                        if cfg.get("discord_notify_errors", True):
+                            send_discord_notification(
+                                f"⚠️ Défi Anti-Bot Détecté — {name}",
+                                f"Un défi bloquant a été détecté sur **{name}**.\nOuvrez l'application et cliquez sur **'🛠️ Résoudre'**.",
+                                color=0xef4444
+                            )
                         return {
                             "status": "captcha_detected",
                             "browser": name,
@@ -1203,6 +1305,13 @@ def claim_account(account_id, headless=True, status_callback=None):
                 if "/login" in page.url or "/signup" in page.url:
                     context.close()
                     kill_browser_processes(account_id)
+                    cfg = load_config()
+                    if cfg.get("discord_notify_errors", True):
+                        send_discord_notification(
+                            f"⚠️ Session Expirée — {name}",
+                            f"La session du compte **{name}** a expiré.\nVeuillez vous reconnecter via le bouton **'🔑 Connecter'**.",
+                            color=0xef4444
+                        )
                     return {
                         "status": "login_required",
                         "browser": name,
@@ -1366,6 +1475,42 @@ def claim_account(account_id, headless=True, status_callback=None):
                     "screenshot": latest_screenshot
                 })
 
+                # Notification Discord automatique
+                try:
+                    cfg = load_config()
+                    if cfg.get("discord_webhook"):
+                        notify_rare_only = cfg.get("discord_notify_rare_only", True)
+                        has_rare = any(r in ["L", "UR", "SR", "R"] for r in all_rarities)
+                        
+                        if has_rare or not notify_rare_only:
+                            color = 0xfbbf24 if any(r == "L" for r in all_rarities) else (
+                                0xec4899 if any(r == "UR" for r in all_rarities) else (
+                                0xa855f7 if any(r == "SR" for r in all_rarities) else 0x34d399
+                            ))
+                            badge_header = "👑 LÉGENDAIRE OBTENUE !" if any(r == "L" for r in all_rarities) else (
+                                "💎 ULTRA RARE OBTENUE !" if any(r == "UR" for r in all_rarities) else (
+                                "⭐ SUPER RARE OBTENUE !" if any(r == "SR" for r in all_rarities) else "🎉 Nouveau Tirage"
+                            ))
+                            
+                            cards_preview = "\n".join([f"`[{c.get('rarity','C')}]` **{c.get('title','')}**" for c in all_pulled_card_objects[:8]])
+                            if len(all_pulled_card_objects) > 8:
+                                cards_preview += f"\n*...et {len(all_pulled_card_objects) - 8} autre(s) carte(s)*"
+
+                            fields = [
+                                {"name": "👤 Compte", "value": f"**{name}**", "inline": True},
+                                {"name": "📦 Paquets", "value": f"{total_packs_opened} paquet(s)", "inline": True},
+                                {"name": "📊 Raretés", "value": global_rarity_summary or "5 cartes par paquet", "inline": False},
+                                {"name": "🃏 Cartes Obtenues", "value": cards_preview or "Cartes enregistrées", "inline": False}
+                            ]
+                            send_discord_notification(
+                                f"{badge_header} — {name}",
+                                f"**{name}** a ouvert {total_packs_opened} paquet(s) !\nBilan : {global_rarity_summary}",
+                                color=color,
+                                fields=fields
+                            )
+                except Exception:
+                    pass
+
             # 1. Extraction des statistiques réelles de collection (total et raretés)
             col_stats = extract_collection_stats(page, account_id)
 
@@ -1384,6 +1529,17 @@ def claim_account(account_id, headless=True, status_callback=None):
             if acc.get("auto_friends", True) and total_packs_opened > 0:
                 try:
                     sync_account_friends(page, acc, config.get("accounts", []), status_callback)
+                except Exception:
+                    pass
+
+            # 4. Auto-acceptation des échanges reçus entre comptes
+            if acc.get("auto_accept_trades", True):
+                try:
+                    from transfer import accept_incoming_trades
+                    trade_res = accept_incoming_trades(page)
+                    if trade_res and trade_res.get("ok") and trade_res.get("accepted"):
+                        acc_trades = trade_res["accepted"]
+                        safe_notify(status_callback, f"[{name}] 🤝 {len(acc_trades)} échange(s) reçu(s) accepté(s) automatiquement !", "success")
                 except Exception:
                     pass
 
