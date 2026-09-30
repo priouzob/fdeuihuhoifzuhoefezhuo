@@ -3445,12 +3445,14 @@ class AccountCard(QFrame):
             )
 
     def update_configured_state(self):
-        is_conf = engine.is_account_configured(self.account_id)
+        is_conf = engine.is_account_configured(self.account_id) or engine.has_saved_session_vault(self.account_id)
+        has_vault = engine.has_saved_session_vault(self.account_id)
         if is_conf:
             self.is_connected = True
-            self.set_status("✅  Prêt", "#06371e", "#6ee7b7")
+            status_text = "🛡️  Protégé" if has_vault else "✅  Prêt"
+            self.set_status(status_text, "#06371e", "#6ee7b7")
             self.set_reconnect_needed(False)
-            self.sub_lbl.setText("Prochain paquet dans :")
+            self.sub_lbl.setText("Session coffre-fort active" if has_vault else "Prochain paquet dans :")
         else:
             self.is_connected = False
             self.remaining_seconds = 0

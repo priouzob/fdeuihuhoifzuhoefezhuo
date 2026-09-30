@@ -184,7 +184,9 @@ def get_state():
                 "C": acc_lifetime.get("C", 0),
             },
             "last_cards": last_cards or acc_col.get("recent_cards", []),
-            "best_cards": best_cards_data.get(aid, [])[:10]
+            "best_cards": best_cards_data.get(aid, [])[:10],
+            "has_vault": engine.has_saved_session_vault(aid),
+            "vault_info": engine.get_session_vault_info(aid)
         })
 
     with _recent_logs_lock:
@@ -300,6 +302,33 @@ def api_delete_account():
         _web_bridge.delete_requested.emit(account_id)
         return jsonify({"success": True})
     return jsonify({"success": False}), 400
+
+@app.route("/api/import_session", methods=["POST"])
+def api_import_session():
+    data = request.get_json(silent=True) or {}
+    account_id = data.get("account_id")
+    raw_data = data.get("session_data", "")
+    if not account_id or not raw_data:
+        return jsonify({"success": False, "message": "Paramètres manquants."}), 400
+    success, msg = engine.import_manual_session(account_id, raw_data)
+    if success and _main_window_ref:
+        card = _main_window_ref.account_cards.get(account_id)
+        if card:
+            card.is_connected = True
+            card.set_reconnect_needed(False)
+            card.set_status("🛡️  Protégé", "#14532d", "#86efac")
+            card.sub_lbl.setText("Session coffre-fort active")
+            card.login_fail_count = 0
+    return jsonify({"success": success, "message": msg})
+
+@app.route("/api/vault_status")
+def api_vault_status():
+    config_accs = engine.get_accounts()
+    res = {}
+    for acc in config_accs:
+        aid = acc.get("id")
+        res[aid] = engine.get_session_vault_info(aid)
+    return jsonify(res)
 
 @app.route("/api/best_cards")
 def api_best_cards():

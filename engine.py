@@ -14,6 +14,8 @@ import re
 import random
 import subprocess
 import threading
+import base64
+import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 from playwright.sync_api import sync_playwright
@@ -1290,7 +1292,6 @@ def get_browser_launch_args(account_id=None):
         "--mute-audio",
         "--js-flags=--max-old-space-size=128",
         "--renderer-process-limit=2",
-        "--disable-restore-session-state",
         "--disable-session-crashed-bubble",
         "--disable-features=SplashScreen,AutoUpdate"
     ]
@@ -1318,6 +1319,487 @@ def sanitize_window_placement(p_dir):
     except Exception:
         pass
 
+# ─── Coffre-Fort de Sessions Persistant (Zero-Disconnect Vault) ─────────────
+
+SESSIONS_DIR = BASE_DIR / "sessions"
+SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+SUPABASE_URL = "https://cyrxjeppjqsxxjayfrur.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN5cnhqZXBwanFzeHhqYXlmcnVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4ODAzMzksImV4cCI6MjA4OTQ1NjMzOX0.BZluyXygNxuQGDPxFX1zG5i-cqp10CVK-8GGtuak4Rg"
+SUPABASE_REF = "cyrxjeppjqsxxjayfrur"
+SUPABASE_COOKIE_PREFIX = f"sb-{SUPABASE_REF}-auth-token"
+
+def get_session_vault_path(account_id):
+    """Chemin principal du coffre-fort de session pour ce compte."""
+    return SESSIONS_DIR / f"{account_id}_session.json"
+
+def get_session_backup_path(account_id):
+    """Chemin secondaire de sauvegarde dans le dossier du profil."""
+    acc = get_account_info(account_id)
+    p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
+    return p_dir / "session_backup.json"
+
+def has_saved_session_vault(account_id):
+    """Indique si une session persistante est sauvegardée et valide."""
+    vp = get_session_vault_path(account_id)
+    bp = get_session_backup_path(account_id)
+    target = vp if vp.exists() else (bp if bp.exists() else None)
+    if not target:
+        return False
+    try:
+        with open(target, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return bool(data.get("cookies") or data.get("refresh_token") or data.get("local_storage"))
+    except Exception:
+        return False
+
+def get_session_vault_info(account_id):
+    """Retourne les métadonnées sur l'état du coffre-fort pour ce compte."""
+    vp = get_session_vault_path(account_id)
+    bp = get_session_backup_path(account_id)
+    target = vp if vp.exists() else (bp if bp.exists() else None)
+    if not target:
+        return {"has_vault": False, "saved_at": None, "user_email": None, "has_refresh_token": False, "cookie_count": 0}
+    try:
+        with open(target, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return {
+            "has_vault": True,
+            "saved_at": data.get("saved_at"),
+            "user_email": data.get("user", {}).get("email") if isinstance(data.get("user"), dict) else None,
+            "has_refresh_token": bool(data.get("refresh_token")),
+            "cookie_count": len(data.get("cookies", []))
+        }
+    except Exception:
+        return {"has_vault": False, "saved_at": None, "user_email": None, "has_refresh_token": False, "cookie_count": 0}
+
+def refresh_supabase_tokens(refresh_token):
+    """Rafraîchit instantanément les jetons d'accès Supabase via l'API officielle."""
+    if not refresh_token:
+        return None
+    try:
+        url = f"{SUPABASE_URL}/auth/v1/token?grant_type=refresh_token"
+        headers = {
+            "apikey": SUPABASE_ANON_KEY,
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0"
+        }
+        body = json.dumps({"refresh_token": refresh_token}).encode("utf-8")
+        req = urllib.request.Request(url, data=body, headers=headers)
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if data and data.get("access_token"):
+                return data
+    except Exception as e:
+        write_debug(f"Erreur rafraîchissement Supabase: {e}")
+    return None
+
+def build_supabase_cookies_and_storage(session_data):
+    """Construit les cookies chunkés et les entrées LocalStorage conformes à @supabase/ssr."""
+    access_token = session_data.get("access_token")
+    refresh_token = session_data.get("refresh_token")
+    user = session_data.get("user", {})
+    expires_at = session_data.get("expires_at") or (int(time.time()) + int(session_data.get("expires_in", 3600)))
+
+    full_session = {
+        "access_token": access_token,
+        "token_type": session_data.get("token_type", "bearer"),
+        "expires_in": session_data.get("expires_in", 3600),
+        "expires_at": expires_at,
+        "refresh_token": refresh_token,
+        "user": user
+    }
+
+    session_json_str = json.dumps(full_session, separators=(',', ':'))
+    raw_b64 = base64.b64encode(session_json_str.encode("utf-8")).decode("utf-8")
+    b64_val = f"base64-{raw_b64}"
+
+    chunk_size = 3180
+    chunks = [b64_val[i:i+chunk_size] for i in range(0, len(b64_val), chunk_size)]
+
+    cookies = []
+    domains = [".wiki-masters.com", "www.wiki-masters.com"]
+    for d in domains:
+        if len(chunks) == 1:
+            cookies.append({
+                "name": SUPABASE_COOKIE_PREFIX,
+                "value": chunks[0],
+                "domain": d,
+                "path": "/",
+                "secure": True,
+                "httpOnly": False,
+                "sameSite": "Lax",
+                "expires": expires_at + 86400 * 30
+            })
+        else:
+            for idx, chk in enumerate(chunks):
+                cookies.append({
+                    "name": f"{SUPABASE_COOKIE_PREFIX}.{idx}",
+                    "value": chk,
+                    "domain": d,
+                    "path": "/",
+                    "secure": True,
+                    "httpOnly": False,
+                    "sameSite": "Lax",
+                    "expires": expires_at + 86400 * 30
+                })
+
+    local_storage = {
+        SUPABASE_COOKIE_PREFIX: session_json_str
+    }
+    return cookies, local_storage, full_session
+
+def save_session_vault(context, page, account_id):
+    """Sauvegarde de manière exhaustive et permanente les cookies, LocalStorage et tokens Supabase."""
+    try:
+        SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+        vault_path = get_session_vault_path(account_id)
+        backup_path = get_session_backup_path(account_id)
+
+        cookies = context.cookies()
+
+        local_storage = {}
+        try:
+            local_storage = page.evaluate("() => Object.assign({}, window.localStorage)") or {}
+        except Exception:
+            pass
+
+        supabase_token_data = None
+        for k, v in local_storage.items():
+            if "auth-token" in k.lower() and isinstance(v, str):
+                try:
+                    parsed = json.loads(v)
+                    if isinstance(parsed, dict) and parsed.get("access_token"):
+                        supabase_token_data = parsed
+                        break
+                except Exception:
+                    pass
+
+        if not supabase_token_data:
+            chunks = {}
+            for c in cookies:
+                name = c.get("name", "")
+                if SUPABASE_COOKIE_PREFIX in name:
+                    val = c.get("value", "")
+                    if name == SUPABASE_COOKIE_PREFIX:
+                        chunks[0] = val
+                    elif "." in name:
+                        try:
+                            idx = int(name.split(".")[-1])
+                            chunks[idx] = val
+                        except Exception:
+                            pass
+            if chunks:
+                assembled = "".join(chunks[i] for i in sorted(chunks.keys()))
+                if assembled.startswith("base64-"):
+                    assembled = assembled[7:]
+                try:
+                    decoded = base64.b64decode(assembled).decode("utf-8")
+                    parsed = json.loads(decoded)
+                    if isinstance(parsed, dict) and parsed.get("access_token"):
+                        supabase_token_data = parsed
+                except Exception:
+                    pass
+
+        has_auth = (
+            bool(supabase_token_data) or
+            any("auth-token" in c.get("name", "").lower() for c in cookies) or
+            any(path in page.url.lower() for path in ["/pulls", "/collection", "/achievements", "/guild"])
+        )
+
+        if not has_auth:
+            return False
+
+        vault_payload = {
+            "account_id": account_id,
+            "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": time.time(),
+            "url": page.url,
+            "cookies": cookies,
+            "local_storage": local_storage,
+            "refresh_token": supabase_token_data.get("refresh_token") if supabase_token_data else None,
+            "access_token": supabase_token_data.get("access_token") if supabase_token_data else None,
+            "expires_at": supabase_token_data.get("expires_at") if supabase_token_data else None,
+            "user": supabase_token_data.get("user") if supabase_token_data else None
+        }
+
+        tmp_v = vault_path.with_suffix(".tmp")
+        with open(tmp_v, "w", encoding="utf-8") as f:
+            json.dump(vault_payload, f, ensure_ascii=False, indent=2)
+        if tmp_v.exists():
+            if vault_path.exists():
+                vault_path.unlink()
+            tmp_v.rename(vault_path)
+
+        try:
+            backup_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(backup_path, "w", encoding="utf-8") as f:
+                json.dump(vault_payload, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+        write_debug(f"Coffre-fort session sauvegardé pour {account_id} ({len(cookies)} cookies)")
+        return True
+    except Exception as e:
+        write_debug(f"Erreur save_session_vault {account_id}: {e}")
+        return False
+
+def ensure_fresh_session_vault(account_id):
+    """Vérifie si le token d'accès a expiré et le rafraîchit automatiquement avec le refresh_token."""
+    vp = get_session_vault_path(account_id)
+    bp = get_session_backup_path(account_id)
+    target = vp if vp.exists() else (bp if bp.exists() else None)
+    if not target:
+        return None
+
+    try:
+        with open(target, "r", encoding="utf-8") as f:
+            vault = json.load(f)
+
+        now = time.time()
+        expires_at = vault.get("expires_at") or 0
+        refresh_token = vault.get("refresh_token")
+
+        if refresh_token and (expires_at - now < 300):
+            write_debug(f"Jetons Supabase expirés ou proches d'expirer pour {account_id}. Rafraîchissement automatique...")
+            new_session = refresh_supabase_tokens(refresh_token)
+            if new_session and new_session.get("access_token"):
+                sb_cookies, sb_ls, full_sess = build_supabase_cookies_and_storage(new_session)
+
+                existing_cookies = [c for c in vault.get("cookies", []) if SUPABASE_COOKIE_PREFIX not in c.get("name", "")]
+                existing_cookies.extend(sb_cookies)
+                vault["cookies"] = existing_cookies
+
+                ls = vault.get("local_storage", {})
+                ls.update(sb_ls)
+                vault["local_storage"] = ls
+
+                vault["access_token"] = full_session["access_token"]
+                vault["refresh_token"] = full_session["refresh_token"]
+                vault["expires_at"] = full_session["expires_at"]
+                vault["user"] = full_session.get("user")
+                vault["saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                with open(target, "w", encoding="utf-8") as f:
+                    json.dump(vault, f, ensure_ascii=False, indent=2)
+                try:
+                    with open(bp, "w", encoding="utf-8") as f:
+                        json.dump(vault, f, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+                write_debug(f"Jetons renouvelés avec succès pour {account_id} !")
+
+        return vault
+    except Exception as e:
+        write_debug(f"Erreur ensure_fresh_session_vault {account_id}: {e}")
+        return None
+
+def restore_session_to_context(context, page, account_id):
+    """Injecte infailliblement les cookies et prépare le localStorage avant tout chargement."""
+    vault = ensure_fresh_session_vault(account_id)
+    if not vault:
+        return False
+
+    try:
+        cookies = vault.get("cookies", [])
+        if cookies:
+            clean_cookies = []
+            now = time.time()
+            for c in cookies:
+                clean_c = {
+                    "name": c.get("name"),
+                    "value": c.get("value"),
+                    "domain": c.get("domain", ".wiki-masters.com"),
+                    "path": c.get("path", "/"),
+                    "secure": c.get("secure", True),
+                    "httpOnly": c.get("httpOnly", False),
+                    "sameSite": c.get("sameSite", "Lax")
+                }
+                exp = c.get("expires")
+                if exp and exp > now:
+                    clean_c["expires"] = exp
+                clean_cookies.append(clean_c)
+
+            try:
+                context.add_cookies(clean_cookies)
+            except Exception as ce:
+                write_debug(f"Avertissement injection cookies: {ce}")
+
+        local_storage = vault.get("local_storage", {})
+        if local_storage:
+            storage_json = json.dumps(local_storage)
+            script = f"""
+            (function() {{
+                try {{
+                    const items = {storage_json};
+                    for (const [k, v] of Object.entries(items)) {{
+                        try {{
+                            window.localStorage.setItem(k, v);
+                        }} catch (e) {{}}
+                    }}
+                }} catch (e) {{}}
+            }})();
+            """
+            try:
+                context.add_init_script(script)
+            except Exception:
+                pass
+
+        return True
+    except Exception as e:
+        write_debug(f"Erreur restore_session_to_context {account_id}: {e}")
+        return False
+
+def attempt_vault_session_repair(context, page, account_id, status_callback=None):
+    """Mécanisme de réparation d'urgence : force le rafraîchissement Supabase et ré-injecte la session."""
+    acc = get_account_info(account_id)
+    name = acc.get("name", account_id)
+    safe_notify(status_callback, f"[{name}] 🛡️ Restauration automatique via le coffre-fort de session...", "info")
+
+    vault = ensure_fresh_session_vault(account_id)
+    if not vault or not vault.get("refresh_token"):
+        return False
+
+    try:
+        new_session = refresh_supabase_tokens(vault.get("refresh_token"))
+        if not new_session or not new_session.get("access_token"):
+            return False
+
+        sb_cookies, sb_ls, full_sess = build_supabase_cookies_and_storage(new_session)
+
+        context.add_cookies(sb_cookies)
+
+        try:
+            page.evaluate("""(items) => {
+                for (const [k, v] of Object.entries(items)) {
+                    try { window.localStorage.setItem(k, v); } catch (e) {}
+                }
+            }""", sb_ls)
+        except Exception:
+            pass
+
+        save_session_vault(context, page, account_id)
+
+        page.goto("https://www.wiki-masters.com/pulls", wait_until="domcontentloaded", timeout=15000)
+        time.sleep(2.0)
+
+        if "/login" not in page.url and "/signup" not in page.url:
+            safe_notify(status_callback, f"[{name}] ✅ Session réparée et restaurée depuis le coffre-fort !", "success")
+            return True
+    except Exception as e:
+        write_debug(f"Erreur tentative réparation session: {e}")
+
+    return False
+
+def import_manual_session(account_id, raw_input):
+    """Importe manuellement une session ou des cookies (JSON, chaîne de cookies, token Supabase)."""
+    if not raw_input or not isinstance(raw_input, str):
+        return False, "Données d'import vides ou invalides."
+
+    raw = raw_input.strip()
+    acc = get_account_info(account_id)
+    if not acc:
+        return False, f"Compte {account_id} introuvable."
+
+    if raw.startswith("{") and raw.endswith("}"):
+        try:
+            data = json.loads(raw)
+            if "cookies" in data or "origins" in data:
+                cookies = data.get("cookies", [])
+                local_storage = {}
+                for org in data.get("origins", []):
+                    if "wiki-masters" in org.get("origin", ""):
+                        for item in org.get("localStorage", []):
+                            local_storage[item.get("name")] = item.get("value")
+
+                vault_path = get_session_vault_path(account_id)
+                backup_path = get_session_backup_path(account_id)
+                vault_payload = {
+                    "account_id": account_id,
+                    "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "timestamp": time.time(),
+                    "url": "https://www.wiki-masters.com/pulls",
+                    "cookies": cookies,
+                    "local_storage": local_storage
+                }
+                with open(vault_path, "w", encoding="utf-8") as f:
+                    json.dump(vault_payload, f, ensure_ascii=False, indent=2)
+                try:
+                    with open(backup_path, "w", encoding="utf-8") as f:
+                        json.dump(vault_payload, f, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+                ensure_fresh_session_vault(account_id)
+                return True, "Session importée avec succès (format storage_state) !"
+
+            elif data.get("access_token") or data.get("refresh_token"):
+                cookies, local_storage, full_sess = build_supabase_cookies_and_storage(data)
+                vault_path = get_session_vault_path(account_id)
+                backup_path = get_session_backup_path(account_id)
+                vault_payload = {
+                    "account_id": account_id,
+                    "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "timestamp": time.time(),
+                    "url": "https://www.wiki-masters.com/pulls",
+                    "cookies": cookies,
+                    "local_storage": local_storage,
+                    "access_token": full_sess.get("access_token"),
+                    "refresh_token": full_sess.get("refresh_token"),
+                    "expires_at": full_sess.get("expires_at"),
+                    "user": full_sess.get("user")
+                }
+                with open(vault_path, "w", encoding="utf-8") as f:
+                    json.dump(vault_payload, f, ensure_ascii=False, indent=2)
+                try:
+                    with open(backup_path, "w", encoding="utf-8") as f:
+                        json.dump(vault_payload, f, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+                ensure_fresh_session_vault(account_id)
+                return True, "Session Supabase importée avec succès !"
+        except Exception:
+            pass
+
+    if "=" in raw:
+        try:
+            cookie_pairs = [p.strip() for p in raw.split(";") if "=" in p]
+            parsed_cookies = []
+            for pair in cookie_pairs:
+                name, val = pair.split("=", 1)
+                parsed_cookies.append({
+                    "name": name.strip(),
+                    "value": val.strip(),
+                    "domain": ".wiki-masters.com",
+                    "path": "/",
+                    "secure": True,
+                    "httpOnly": False,
+                    "sameSite": "Lax"
+                })
+
+            vault_path = get_session_vault_path(account_id)
+            backup_path = get_session_backup_path(account_id)
+            vault_payload = {
+                "account_id": account_id,
+                "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": time.time(),
+                "url": "https://www.wiki-masters.com/pulls",
+                "cookies": parsed_cookies,
+                "local_storage": {}
+            }
+            with open(vault_path, "w", encoding="utf-8") as f:
+                json.dump(vault_payload, f, ensure_ascii=False, indent=2)
+            try:
+                with open(backup_path, "w", encoding="utf-8") as f:
+                    json.dump(vault_payload, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+            ensure_fresh_session_vault(account_id)
+            return True, f"{len(parsed_cookies)} cookies importés avec succès !"
+        except Exception as e:
+            return False, f"Erreur lors du traitement des cookies: {e}"
+
+    return False, "Format non reconnu. Veuillez coller vos cookies ou un JSON de session."
+
 def should_run_headless(account_id=None):
     """Google Chrome supporte nativement le headless ultra-léger et discret."""
     return True
@@ -1327,7 +1809,7 @@ def verify_session(account_id):
     exe_path = get_browser_executable_for_account(account_id)
     p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
 
-    if not is_account_configured(account_id):
+    if not is_account_configured(account_id) and not has_saved_session_vault(account_id):
         return False
 
     kill_browser_processes(account_id)
@@ -1344,16 +1826,26 @@ def verify_session(account_id):
             apply_stealth(context)
             page = enforce_single_page(context)
 
-            page.goto("https://wiki-masters.com/pulls", wait_until="domcontentloaded", timeout=20000)
+            # Restauration automatique depuis le coffre-fort
+            restore_session_to_context(context, page, account_id)
+
+            page.goto("https://www.wiki-masters.com/pulls", wait_until="domcontentloaded", timeout=20000)
             time.sleep(2.0)
             check_and_handle_verification_modal(page)
             time.sleep(0.5)
+
+            if "/login" in page.url or "/signup" in page.url:
+                if attempt_vault_session_repair(context, page, account_id):
+                    time.sleep(1.0)
+
             is_logged_in = ("/login" not in page.url and "/signup" not in page.url)
             if is_logged_in:
                 has_auth_el = page.locator("button:has-text('Ouvrir'), *:has-text('paquet'), a[href*='logout'], button:has-text('Déconnexion'), div[class*='user']").count() > 0
                 has_login_el = page.locator("input[type='email'], input[type='password'], button:has-text('Se connecter')").count() > 0
                 if has_login_el and not has_auth_el:
                     is_logged_in = False
+                else:
+                    save_session_vault(context, page, account_id)
             context.close()
             return is_logged_in
     except Exception:
@@ -1381,7 +1873,7 @@ def close_active_setup():
             pass
     _active_setup_proc = None
 
-def setup_account(account_id, start_url="https://wiki-masters.com/login", status_callback=None, browser_type=None):
+def setup_account(account_id, start_url="https://www.wiki-masters.com/login", status_callback=None, browser_type=None):
     global _active_setup_proc, _active_setup_context, _active_setup_stop_flag
     close_active_setup()
     _active_setup_stop_flag = False
@@ -1405,9 +1897,9 @@ def setup_account(account_id, start_url="https://wiki-masters.com/login", status
     sanitize_window_placement(p_dir)
 
     safe_notify(status_callback, f"Ouverture de {b_name} pour {name}...", "info")
-    safe_notify(status_callback, f"Connectez-vous à votre compte dans la fenêtre ouverte. La session sera automatiquement validée et synchronisée.", "warning")
+    safe_notify(status_callback, f"Connectez-vous une seule fois dans la fenêtre ouverte. Vos cookies seront sauvegardés dans le coffre-fort permanent.", "warning")
 
-    target_url = "https://wiki-masters.com/login" if ("/login" in start_url or "/signup" in start_url) else start_url
+    target_url = "https://www.wiki-masters.com/login" if ("/login" in start_url or "/signup" in start_url) else start_url
 
     try:
         with sync_playwright() as p:
@@ -1421,6 +1913,9 @@ def setup_account(account_id, start_url="https://wiki-masters.com/login", status
             _active_setup_context = context
             apply_stealth(context)
             page = context.pages[0] if context.pages else context.new_page()
+
+            # Restauration automatique au cas où une session précédente existe
+            restore_session_to_context(context, page, account_id)
 
             # Forcer la fenêtre visible au premier plan
             time.sleep(0.5)
@@ -1446,21 +1941,26 @@ def setup_account(account_id, start_url="https://wiki-masters.com/login", status
 
                     curr_url = page.url.lower()
 
-                    # 1. Vérifier si l'utilisateur a navigué vers /pulls ou un tableau de bord connecté
+                    # 1. Vérifier la navigation vers un tableau de bord connecté
                     if any(path in curr_url for path in ["/pulls", "/collection", "/achievements", "/guild", "/market", "/profile"]):
                         is_logged_in = True
-                        break
 
-                    # 2. Vérifier les cookies de session Supabase
-                    cookies = context.cookies(["https://wiki-masters.com", "https://www.wiki-masters.com"])
-                    if any("auth-token" in c.get("name", "") for c in cookies):
+                    # 2. Vérifier les cookies globaux
+                    all_cookies = context.cookies()
+                    if any("auth-token" in c.get("name", "").lower() for c in all_cookies):
                         is_logged_in = True
-                        break
 
                     # 3. Vérifier les éléments d'interface connectés
                     if page.locator("a[href*='/pulls'], button:has-text('Ouvrir'), a[href*='/profile']").count() > 0:
                         is_logged_in = True
-                        break
+
+                    if is_logged_in:
+                        # Sauvegarder immédiatement dans le coffre-fort permanent
+                        saved = save_session_vault(context, page, account_id)
+                        if saved:
+                            safe_notify(status_callback, f"[{name}] 🛡️ Session & cookies sauvegardés dans le coffre-fort permanent !", "success")
+                            time.sleep(1.5)
+                            break
 
                     time.sleep(0.8)
                 except Exception as e:
@@ -1470,7 +1970,7 @@ def setup_account(account_id, start_url="https://wiki-masters.com/login", status
 
             _active_setup_context = None
             if is_logged_in:
-                safe_notify(status_callback, f"[{name}] ✅ Connexion détectée ! Enregistrement de la session...", "success")
+                safe_notify(status_callback, f"[{name}] ✅ Connexion validée ! Enregistrement du coffre-fort...", "success")
                 time.sleep(1.5)
 
             try:
@@ -1483,10 +1983,10 @@ def setup_account(account_id, start_url="https://wiki-masters.com/login", status
         safe_notify(status_callback, f"Vérification de la session {name}...", "info")
         is_valid = verify_session(account_id)
         if is_valid or is_logged_in:
-            safe_notify(status_callback, f"Session validée pour {name} ! Compte prêt et persistant.", "success")
-            return True, "Session validée"
+            safe_notify(status_callback, f"Session validée pour {name} ! Compte protégé par le coffre-fort permanent.", "success")
+            return True, "Session validée et sécurisée dans le coffre-fort"
         else:
-            safe_notify(status_callback, f"Connexion non complétée pour {name}. Veuillez cliquer sur '🔑 Connecter' et vous identifier.", "warning")
+            safe_notify(status_callback, f"Connexion non complétée pour {name}. Cliquez sur '🔑 Connecter' et validez.", "warning")
             return False, "Connexion non complétée. Veuillez vous identifier sur WikiMasters."
 
     except Exception as e:
@@ -1901,7 +2401,9 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
     name = acc.get("name", account_id)
     exe_path = get_browser_executable_for_account(account_id)
     p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
-    target_url = target_url or config.get("target_url", "https://wiki-masters.com/pulls")
+    target_url = target_url or config.get("target_url", "https://www.wiki-masters.com/pulls")
+    if target_url and "wiki-masters.com" in target_url and "www.wiki-masters.com" not in target_url:
+        target_url = target_url.replace("wiki-masters.com", "www.wiki-masters.com")
 
     if not is_account_configured(account_id):
         return {
@@ -1942,6 +2444,7 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                 apply_stealth(context)
                 page = enforce_single_page(context)
                 setup_network_optimizations(page)
+                restore_session_to_context(context, page, account_id)
 
 
                 captured_api_cards = []
@@ -2029,10 +2532,15 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                         check_and_handle_turnstile(page)
                         time.sleep(1.5)
 
-                    # 2. Attendre 1.5s pour laisser le temps au token Supabase et aux cookies de s'hydrater
+                    # 2. Réparation d'urgence automatique via le Coffre-Fort de session
+                    if has_saved_session_vault(account_id):
+                        if attempt_vault_session_repair(context, page, account_id, status_callback):
+                            time.sleep(1.5)
+
+                    # 3. Attendre 1.5s pour laisser le temps au token Supabase et aux cookies de s'hydrater
                     time.sleep(1.5)
 
-                    # 3. Retenter une navigation vers la cible si on est toujours sur /login
+                    # 4. Retenter une navigation vers la cible si on est toujours sur /login
                     if "/login" in page.url or "/signup" in page.url:
                         try:
                             page.goto(target_url, wait_until="domcontentloaded", timeout=12000)
@@ -2040,7 +2548,7 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                         except Exception:
                             pass
 
-                    # 4. Confirmation finale si la session a réellement expiré
+                    # 5. Confirmation finale si la session a réellement expiré
                     if "/login" in page.url or "/signup" in page.url:
                         context.close()
                         kill_browser_processes(account_id)
@@ -2058,6 +2566,9 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                             "seconds_left": 90,
                             "details": "Session expirée. Reconnexion automatique programmée (ou cliquez sur '🔑 Connecter')."
                         }
+
+                # Mettre à jour en continu le coffre-fort dès que la session est vérifiée active
+                save_session_vault(context, page, account_id)
 
                 total_packs_opened = 0
                 all_pulled_cards = []

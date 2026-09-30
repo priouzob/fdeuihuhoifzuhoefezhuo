@@ -265,6 +265,9 @@
           <button onclick="openModal('modalGuild')" title="Guilde & Échanges" class="p-2 hover:bg-amber-950/60 text-slate-400 hover:text-amber-400 rounded-lg transition-colors">
             <i data-lucide="shield" class="w-4 h-4"></i>
           </button>
+          <button onclick="openModal('modalVault')" title="Coffre-Fort des Sessions Persistantes (Touche V)" class="p-2 hover:bg-emerald-950/60 text-slate-400 hover:text-emerald-400 rounded-lg transition-colors">
+            <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+          </button>
           <button onclick="openModal('modalDiscord')" title="Configuration Discord Webhook" class="p-2 hover:bg-indigo-950/60 text-slate-400 hover:text-indigo-300 rounded-lg transition-colors">
             <i data-lucide="message-square" class="w-4 h-4"></i>
           </button>
@@ -623,6 +626,111 @@
           </button>
           <button onclick="saveDiscordSettings()" class="flex-1 py-3 bg-gradient-to-r from-indigo-600 to-brand-600 hover:from-indigo-500 hover:to-brand-500 text-white font-extrabold rounded-xl text-xs transition-all active:scale-95 shadow-lg shadow-indigo-950">
             Enregistrer
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Import Session / Coffre-fort -->
+  <div id="modalImportSession" class="fixed inset-0 z-50 hidden bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="modal-content-anim glass-panel rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden border border-white/10">
+      <div class="flex items-center justify-between p-5 border-b border-white/10 bg-slate-950/60">
+        <div class="flex items-center gap-3">
+          <div class="p-2.5 rounded-2xl bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 shadow-glow-emerald">
+            <i data-lucide="shield-check" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 class="font-extrabold text-base text-white">Importer dans le Coffre-Fort</h3>
+            <p class="text-xs text-slate-400">Compte : <span id="importAccountName" class="text-emerald-400 font-bold">Compte</span></p>
+          </div>
+        </div>
+        <button onclick="closeModal('modalImportSession')" class="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-6 space-y-4">
+        <div class="p-3.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/20 text-xs text-slate-300 space-y-1.5">
+          <div class="flex items-center gap-2 font-bold text-emerald-400">
+            <i data-lucide="sparkles" class="w-4 h-4"></i>
+            <span>Connexion Permanente Zero-Disconnect</span>
+          </div>
+          <p class="text-slate-400 text-[11px] leading-relaxed">
+            Collez ici vos cookies WikiMasters ou votre jeton de session JSON.
+            Le coffre-fort sauvegardera vos identifiants et renouvellera automatiquement votre session même en cas de déconnexion !
+          </p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-200 mb-1.5">Cookies ou Jeton de Session :</label>
+          <textarea id="importSessionInput" rows="5" placeholder="Collez vos cookies (sb-cyrxjeppjqsxxjayfrur-auth-token=...) ou votre session JSON ici..." class="w-full bg-slate-950 border border-slate-700/80 rounded-xl p-3 text-xs text-white focus:border-emerald-500 focus:outline-none font-mono"></textarea>
+        </div>
+
+        <div class="flex items-center gap-3 pt-2">
+          <button onclick="closeModal('modalImportSession')" class="flex-1 py-3 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 font-bold rounded-xl text-xs transition-all active:scale-95">
+            Annuler
+          </button>
+          <button onclick="submitImportSession()" class="flex-1 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold rounded-xl text-xs transition-all active:scale-95 shadow-lg shadow-emerald-950 flex items-center justify-center gap-2">
+            <i data-lucide="shield-check" class="w-4 h-4"></i>
+            <span>Sauvegarder dans le Coffre-Fort</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Coffre-Fort Vue Globale -->
+  <div id="modalVault" class="fixed inset-0 z-50 hidden bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="modal-content-anim glass-panel rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden border border-white/10">
+      <div class="flex items-center justify-between p-5 border-b border-white/10 bg-slate-950/60">
+        <div class="flex items-center gap-3">
+          <div class="p-2.5 rounded-2xl bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 shadow-glow-emerald">
+            <i data-lucide="shield" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 class="font-extrabold text-base text-white">Coffre-Fort des Sessions Persistantes</h3>
+            <p class="text-xs text-slate-400">Protection contre les déconnexions et sauvegardes automatiques</p>
+          </div>
+        </div>
+        <button onclick="closeModal('modalVault')" class="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-6 space-y-4">
+        <div class="grid grid-cols-2 gap-3 text-xs">
+          <div class="p-3 rounded-2xl bg-slate-950/60 border border-white/5 space-y-1">
+            <div class="text-slate-400 text-[10px] uppercase font-bold tracking-wider">Statut du Coffre-Fort</div>
+            <div class="text-emerald-400 font-bold flex items-center gap-1.5 text-sm">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>Actif & Inaltérable</span>
+            </div>
+          </div>
+          <div class="p-3 rounded-2xl bg-slate-950/60 border border-white/5 space-y-1">
+            <div class="text-slate-400 text-[10px] uppercase font-bold tracking-wider">Reconnexion Auto</div>
+            <div class="text-brand-300 font-bold flex items-center gap-1.5 text-sm">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-brand-400"></i>
+              <span>Refresh Token Supabase</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <div class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">État des Comptes :</div>
+          <div id="vaultAccountsList" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+            <!-- Dynamiquement peuplé -->
+          </div>
+        </div>
+
+        <div class="p-3 rounded-2xl bg-slate-950/40 border border-white/5 text-[11px] text-slate-400 space-y-1">
+          <div class="font-bold text-slate-200">ℹ️ Comment fonctionne la protection permanente ?</div>
+          <p>Dès que vous vous connectez une fois, vos cookies de session et vos tokens de rafraîchissement Supabase sont enregistrés dans <code class="text-emerald-300">sessions/</code>. Si WikiMasters invalide votre session ou si votre navigateur se ferme, le bot restaure et renouvelle automatiquement votre accès sans interrompre vos tirages.</p>
+        </div>
+
+        <div class="pt-2 flex justify-end">
+          <button onclick="closeModal('modalVault')" class="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 hover:text-white font-bold rounded-xl text-xs transition-all active:scale-95 border border-white/10">
+            Fermer
           </button>
         </div>
       </div>
@@ -1069,6 +1177,29 @@
         if (acc.browser_type === "brave") browserColor = "bg-orange-950/60 text-orange-300 border-orange-800/40";
         if (acc.browser_type === "edge") browserColor = "bg-teal-950/60 text-teal-300 border-teal-800/40";
 
+        let vaultBadge = '';
+        if (acc.has_vault) {
+          vaultBadge = `
+            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 text-[9px] font-bold" title="Cookies & session sauvegardés dans le coffre-fort permanent (Zero-Disconnect)">
+              <i data-lucide="shield-check" class="w-2.5 h-2.5 text-emerald-400"></i>
+              <span>Vault Actif</span>
+            </span>
+          `;
+        } else {
+          vaultBadge = `
+            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-950/60 text-amber-300 border border-amber-500/30 text-[9px] font-medium" title="Connectez-vous une seule fois pour activer la sauvegarde automatique">
+              <i data-lucide="shield-alert" class="w-2.5 h-2.5 text-amber-400"></i>
+              <span>Non Sauvegardé</span>
+            </span>
+          `;
+        }
+
+        let importSessionBtn = `
+          <button onclick="openImportModal('${acc.id}', '${acc.name}')" title="Importer session ou cookies dans le coffre-fort" class="p-2 bg-slate-900/90 hover:bg-slate-800 text-slate-400 hover:text-emerald-400 rounded-xl border border-white/10 transition-colors active:scale-95">
+            <i data-lucide="shield" class="w-3.5 h-3.5"></i>
+          </button>
+        `;
+
         cardEl.innerHTML = `
           <!-- Header Card -->
           <div class="flex items-center justify-between gap-3 mb-4">
@@ -1085,6 +1216,7 @@
                 </div>
                 <div class="text-[10px] text-slate-400 capitalize flex items-center gap-1.5 mt-0.5">
                   <span class="px-1.5 py-0.2 rounded border ${browserColor} font-semibold">${acc.browser_type}</span>
+                  ${vaultBadge}
                   <span>•</span>
                   <span>${acc.cards_count || 0} cartes</span>
                 </div>
@@ -1157,6 +1289,7 @@
           <div class="flex items-center gap-2 pt-3 border-t border-white/5">
             ${setupBtn}
             ${claimBtnHtml}
+            ${importSessionBtn}
 
             <button onclick="refreshSingle('${acc.id}')" title="Actualiser la session" class="p-2 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl border border-white/10 transition-colors">
               <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
@@ -1263,11 +1396,11 @@
     }
 
     async function openBrowser(accountId) {
-      showToast("Ouverture de la fenêtre du navigateur…", "info");
+      showToast("🔑 Fenêtre ouverte sur votre écran. Connectez-vous une seule fois : session sauvegardée dans le coffre-fort !", "info");
       await fetch('/api/open_browser', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account_id: accountId, start_url: 'https://wiki-masters.com/pulls' })
+        body: JSON.stringify({ account_id: accountId, start_url: 'https://www.wiki-masters.com/pulls' })
       });
     }
 
@@ -1276,8 +1409,83 @@
       await fetch('/api/open_browser', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account_id: accountId, start_url: 'https://wiki-masters.com/pulls' })
+        body: JSON.stringify({ account_id: accountId, start_url: 'https://www.wiki-masters.com/pulls' })
       });
+    }
+
+    let currentImportAccountId = null;
+    function openImportModal(accountId, accountName) {
+      currentImportAccountId = accountId;
+      const lbl = document.getElementById('importAccountName');
+      if (lbl) lbl.textContent = accountName || accountId;
+      const inp = document.getElementById('importSessionInput');
+      if (inp) inp.value = '';
+      openModal('modalImportSession');
+    }
+
+    async function submitImportSession() {
+      if (!currentImportAccountId) return;
+      const raw = (document.getElementById('importSessionInput').value || '').trim();
+      if (!raw) {
+        showToast("Veuillez coller vos cookies ou votre jeton de session.", "warning");
+        return;
+      }
+      showToast("Vérification et sauvegarde dans le coffre-fort...", "info");
+      try {
+        const res = await fetch('/api/import_session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_id: currentImportAccountId, session_data: raw })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(data.message || "Session enregistrée avec succès !", "success");
+          closeModal('modalImportSession');
+          fetchState();
+        } else {
+          showToast(data.message || "Erreur lors de l'importation.", "error");
+        }
+      } catch (e) {
+        showToast("Erreur réseau lors de l'importation.", "error");
+      }
+    }
+
+    function renderVaultModal() {
+      const container = document.getElementById('vaultAccountsList');
+      if (!container) return;
+      container.innerHTML = '';
+      (state.accounts || []).forEach(acc => {
+        const vInfo = acc.vault_info || {};
+        const hasVault = acc.has_vault;
+        const div = document.createElement('div');
+        div.className = "flex items-center justify-between p-3.5 rounded-2xl bg-slate-950/60 border border-white/5";
+        div.innerHTML = `
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl ${hasVault ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-500/30 shadow-glow-emerald' : 'bg-amber-950/60 text-amber-400 border border-amber-500/30'} flex items-center justify-center font-bold text-xs">
+              <i data-lucide="${hasVault ? 'shield-check' : 'shield-alert'}" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <div class="text-xs font-black text-white flex items-center gap-1.5">
+                <span>${acc.name}</span>
+                ${hasVault ? '<span class="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold">Protégé</span>' : '<span class="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-medium">À configurer</span>'}
+              </div>
+              <div class="text-[10px] text-slate-400 mt-0.5">
+                ${hasVault ? `Dernière sauvegarde : <span class="text-slate-300 font-mono">${vInfo.saved_at || 'Active'}</span> (${vInfo.cookie_count || 0} cookies)` : 'Non configuré — Connectez-vous une fois ou collez vos cookies'}
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="openImportModal('${acc.id}', '${acc.name}')" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-bold border border-white/10 transition-colors">
+              Importer
+            </button>
+            <button onclick="openBrowser('${acc.id}')" class="px-3.5 py-1.5 ${hasVault ? 'bg-slate-900 hover:bg-slate-800 text-slate-300' : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-950'} rounded-xl text-xs font-bold transition-all active:scale-95">
+              ${hasVault ? 'Ouvrir' : 'Connecter'}
+            </button>
+          </div>
+        `;
+        container.appendChild(div);
+      });
+      lucide.createIcons();
     }
 
     async function toggleMainAccount(accountId) {
@@ -1552,6 +1760,7 @@
       if (id === 'modalTop10') loadTop10();
       if (id === 'modalFleetStats') loadFleetStats();
       if (id === 'modalDiscord') loadDiscordSettings();
+      if (id === 'modalVault') renderVaultModal();
       if (id === 'modalTransfer') {
         const sel = document.getElementById('transferTargetSelect');
         sel.innerHTML = '';
@@ -1570,7 +1779,7 @@
       document.getElementById(id).classList.add('hidden');
     }
 
-    // ─── Keyboard Hotkeys (Espace, P, R, T, S, ?, Echap) ───
+    // ─── Keyboard Hotkeys (Espace, P, R, T, S, V, ?, Echap) ───
     window.addEventListener('keydown', (e) => {
       // Ignorer si l'utilisateur est en train de saisir dans un champ texte
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
@@ -1579,7 +1788,7 @@
       }
 
       if (e.key === 'Escape') {
-        ['modalTop10', 'modalFleetStats', 'modalTransfer', 'modalGuild', 'modalDiscord', 'modalAddAccount', 'modalLightbox', 'modalShortcuts'].forEach(closeModal);
+        ['modalTop10', 'modalFleetStats', 'modalTransfer', 'modalGuild', 'modalVault', 'modalImportSession', 'modalDiscord', 'modalAddAccount', 'modalLightbox', 'modalShortcuts'].forEach(closeModal);
       } else if (e.code === 'Space') {
         e.preventDefault();
         claimAll();
@@ -1589,6 +1798,9 @@
       } else if (e.key === 'r' || e.key === 'R') {
         e.preventDefault();
         refreshAll();
+      } else if (e.key === 'v' || e.key === 'V') {
+        e.preventDefault();
+        openModal('modalVault');
       } else if (e.key === 't' || e.key === 'T') {
         e.preventDefault();
         openModal('modalTransfer');
