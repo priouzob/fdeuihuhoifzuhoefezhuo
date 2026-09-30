@@ -131,22 +131,34 @@ def setup_network_optimizations(page):
     except Exception:
         pass
 
+_account_busy_timestamps = {}
+
 def is_account_busy(account_id):
     """Vérifie si un compte est actuellement en cours d'utilisation par un processus."""
     with _account_busy_lock:
-        return account_id in _account_busy_set
+        if account_id in _account_busy_set:
+            # Auto-expiration de sécurité après 180s pour empêcher tout blocage définitif
+            t_busy = _account_busy_timestamps.get(account_id, 0)
+            if time.time() - t_busy > 180:
+                _account_busy_set.discard(account_id)
+                _account_busy_timestamps.pop(account_id, None)
+                return False
+            return True
+        return False
 
 def mark_account_busy(account_id):
     """Marque un compte comme étant en cours d'utilisation."""
     with _account_busy_lock:
         _account_busy_set.add(account_id)
+        _account_busy_timestamps[account_id] = time.time()
 
 def unmark_account_busy(account_id):
     """Libère un compte."""
     with _account_busy_lock:
         _account_busy_set.discard(account_id)
+        _account_busy_timestamps.pop(account_id, None)
 
-def clean_profile_locks(browser_key, max_wait=2.0):
+def clean_profile_locks(browser_key, max_wait=2.5):
     """Nettoie de façon garantie tous les verrous résiduels (SingletonLock, lockfile, etc.) du profil Chrome."""
     try:
         acc = get_account_info(browser_key)
@@ -164,6 +176,16 @@ def clean_profile_locks(browser_key, max_wait=2.0):
                         f.unlink()
                     except Exception:
                         all_clean = False
+            # Nettoyer également dans le sous-dossier Default si présent
+            def_dir = p_dir / "Default"
+            if def_dir.exists():
+                for name in lock_names:
+                    f = def_dir / name
+                    if f.exists():
+                        try:
+                            f.unlink()
+                        except Exception:
+                            all_clean = False
             if all_clean:
                 break
             time.sleep(0.1)
@@ -200,7 +222,8 @@ def kill_browser_processes(browser_key):
                 pname = (proc.info.get('name') or '').lower()
                 if pname in ('chrome.exe', 'brave.exe', 'msedge.exe', 'opera.exe'):
                     cmdline = " ".join(proc.info.get('cmdline') or []).lower()
-                    if f"profiles/{target_key}" in cmdline or f"profiles\\{target_key}" in cmdline:
+                    if (f"profiles/{target_key}" in cmdline or f"profiles\\{target_key}" in cmdline or
+                            f"profiles/{target_key}_viewer" in cmdline or f"profiles\\{target_key}_viewer" in cmdline):
                         matched_procs.append(proc)
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 pass
@@ -219,8 +242,8 @@ def kill_browser_processes(browser_key):
                     pass
     except Exception:
         pass
-    clean_profile_locks(browser_key, max_wait=1.0)
-    time.sleep(0.05)
+    clean_profile_locks(browser_key, max_wait=2.0)
+    time.sleep(0.08)
 
 def load_collection_stats():
     """Charge le cache des statistiques de collection de chaque compte (lecture mémoire ultra-rapide)."""
@@ -1328,7 +1351,6 @@ def setup_account(account_id, start_url="https://wiki-masters.com/signup", statu
             f"--user-data-dir={resolved_p_dir}",
             "--profile-directory=Default",
             "--new-window",
-            f"--window-name=WikiMasters_{account_id}",
             "--window-size=1280,850",
             "--window-position=100,60",
             "--no-first-run",
@@ -1344,10 +1366,6 @@ def setup_account(account_id, start_url="https://wiki-masters.com/signup", statu
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = 1
-            try:
-                startupinfo.lpDesktop = r"WinSta0\Default"
-            except Exception:
-                pass
 
         local_proc = subprocess.Popen(cmd, creationflags=creationflags, startupinfo=startupinfo, close_fds=True)
         _active_setup_proc = local_proc
@@ -1469,19 +1487,28 @@ def find_hwnds_for_account(account_id):
         user32 = ctypes.windll.user32
         hwnds = []
 
+        class _RECT(ctypes.Structure):
+            _fields_ = [('left', ctypes.c_long), ('top', ctypes.c_long), ('right', ctypes.c_long), ('bottom', ctypes.c_long)]
+
         def enum_cb(hwnd, extra):
             if user32.IsWindowVisible(hwnd):
-                pid = ctypes.c_ulong()
-                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
                 length = user32.GetWindowTextLengthW(hwnd)
-                if pid.value in pids:
-                    hwnds.append(hwnd)
-                elif length > 0:
-                    buff = ctypes.create_unicode_buffer(length + 1)
-                    user32.GetWindowTextW(hwnd, buff, length + 1)
-                    t = buff.value.lower()
-                    if f"wikimasters_{target_key}" in t or ("wikimasters" in t and target_key in t):
-                        hwnds.append(hwnd)
+                if length > 0:
+                    rect = _RECT()
+                    user32.GetWindowRect(hwnd, ctypes.byref(rect))
+                    w = rect.right - rect.left
+                    h = rect.bottom - rect.top
+                    if w > 200 and h > 200:
+                        pid = ctypes.c_ulong()
+                        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                        if pid.value in pids:
+                            hwnds.append(hwnd)
+                        else:
+                            buff = ctypes.create_unicode_buffer(length + 1)
+                            user32.GetWindowTextW(hwnd, buff, length + 1)
+                            t = buff.value.lower()
+                            if f"wikimasters_{target_key}" in t or ("wikimasters" in t and target_key in t):
+                                hwnds.append(hwnd)
             return True
 
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
@@ -1575,7 +1602,6 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
         "--profile-directory=Default",
         "--new-window",
         "--disable-restore-session-state",
-        f"--window-name=WikiMasters_{account_id}",
         "--window-size=1280,850",
         "--window-position=100,60",
         "--no-first-run",
@@ -1585,7 +1611,6 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
         url
     ]
 
-
     creationflags = 0
     startupinfo = None
     if sys.platform == "win32":
@@ -1593,10 +1618,6 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = 1  # SW_SHOWNORMAL
-        try:
-            startupinfo.lpDesktop = r"WinSta0\Default"
-        except Exception:
-            pass
 
     try:
         proc = subprocess.Popen(
@@ -1890,9 +1911,27 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                                 "details": "⚠️ Défi anti-bot bloquant détecté. Les autres comptes continuent normalement. Cliquez sur '🛠️ Résoudre'."
                             }
 
-                # Vérifier si on est redirigé vers /login
+                # Vérification résiliente de la session et prévention des faux positifs
                 if "/login" in page.url or "/signup" in page.url:
-                    time.sleep(0.5)
+                    # 1. Vérifier si un Turnstile est apparu sur la page de connexion
+                    cf_login = page.locator("iframe[src*='challenges.cloudflare.com'], iframe[src*='turnstile'], div.cf-turnstile")
+                    if cf_login.count() > 0:
+                        safe_notify(status_callback, f"[{name}] 🛡️ Vérification anti-bot sur la page de connexion. Résolution discrète...", "stealth")
+                        check_and_handle_turnstile(page)
+                        time.sleep(1.5)
+
+                    # 2. Attendre 1.5s pour laisser le temps au token Supabase et aux cookies de s'hydrater
+                    time.sleep(1.5)
+
+                    # 3. Retenter une navigation vers la cible si on est toujours sur /login
+                    if "/login" in page.url or "/signup" in page.url:
+                        try:
+                            page.goto(target_url, wait_until="domcontentloaded", timeout=12000)
+                            time.sleep(1.5)
+                        except Exception:
+                            pass
+
+                    # 4. Confirmation finale si la session a réellement expiré
                     if "/login" in page.url or "/signup" in page.url:
                         context.close()
                         kill_browser_processes(account_id)
@@ -1907,7 +1946,8 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                             "status": "login_required",
                             "browser": name,
                             "browser_key": account_id,
-                            "details": "Session expirée. Veuillez vous reconnecter."
+                            "seconds_left": 90,
+                            "details": "Session expirée. Reconnexion automatique programmée (ou cliquez sur '🔑 Connecter')."
                         }
 
                 total_packs_opened = 0

@@ -168,8 +168,14 @@ def enforce_single_page(context):
 
 def apply_stealth(context):
     """Injecte les scripts de masquage anti-détection dans le contexte de navigation."""
-    context.add_init_script(STEALTH_JS)
-    enforce_single_page(context)
+    try:
+        context.add_init_script(STEALTH_JS)
+    except Exception:
+        pass
+    try:
+        enforce_single_page(context)
+    except Exception:
+        pass
 
 
 def human_delay(min_sec=0.8, max_sec=2.2):

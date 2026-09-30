@@ -2521,22 +2521,39 @@ class SingleAccountClaimWorker(QThread):
         self.account_id = account_id
 
     def run(self):
-        with _claim_concurrency_semaphore:
-            try:
-                res = engine.claim_account(
-                    self.account_id,
-                    headless=True,
-                    status_callback=lambda text, level: self.log_signal.emit(text, level),
-                    pack_callback=lambda pinfo: self.pack_progress_signal.emit(self.account_id, pinfo)
-                )
-            except Exception as e:
+        res = None
+        try:
+            with _claim_concurrency_semaphore:
+                try:
+                    res = engine.claim_account(
+                        self.account_id,
+                        headless=True,
+                        status_callback=lambda text, level: self.log_signal.emit(text, level),
+                        pack_callback=lambda pinfo: self.pack_progress_signal.emit(self.account_id, pinfo)
+                    )
+                except Exception as e:
+                    res = {
+                        "status": "error",
+                        "details": str(e),
+                        "browser": self.account_id,
+                        "browser_key": self.account_id
+                    }
+        except Exception as e:
+            res = {
+                "status": "error",
+                "details": f"Worker error: {e}",
+                "browser": self.account_id,
+                "browser_key": self.account_id
+            }
+        finally:
+            if not res or not isinstance(res, dict):
                 res = {
                     "status": "error",
-                    "details": str(e),
+                    "details": "Réponse vide du moteur",
                     "browser": self.account_id,
                     "browser_key": self.account_id
                 }
-        self.account_result_signal.emit(self.account_id, res)
+            self.account_result_signal.emit(self.account_id, res)
 
 class BackgroundClaimWorker(QThread):
     log_signal = Signal(str, str)
@@ -4157,6 +4174,29 @@ class MainWindow(QMainWindow):
 
         self.update_global_stats()
 
+        # Watchdog anti-freeze : débloquer tout compte dont le statut de tirage dépasse le délai raisonnable
+        now_ts = time.time()
+        for aid, card in self.account_cards.items():
+            if card.is_claiming:
+                start_ts = getattr(card, "_claim_start_ts", 0)
+                if start_ts == 0:
+                    card._claim_start_ts = now_ts
+                elif now_ts - start_ts > 150:  # 2.5 minutes maximum pour un tirage
+                    self.log(f"[{card.title_text}] ⏱ Sécurité anti-blocage : réinitialisation du compte après délai dépassé.", "warning")
+                    card.is_claiming = False
+                    card._claim_start_ts = 0
+                    engine.unmark_account_busy(aid)
+                    if aid in self.claim_workers:
+                        try:
+                            self.claim_workers[aid].terminate()
+                        except Exception:
+                            pass
+                        del self.claim_workers[aid]
+                    card.set_status("⚠️  Récupération", "#451a03", "#fde68a")
+                    card.set_countdown(30)
+            else:
+                card._claim_start_ts = 0
+
         ready = [
             acc_id for acc_id, card in self.account_cards.items()
             if card.is_connected and card.remaining_seconds == 0 and not card.is_claiming and acc_id not in self.claim_workers and not engine.is_account_busy(acc_id)
@@ -4217,6 +4257,7 @@ class MainWindow(QMainWindow):
                 continue
 
             card.is_claiming = True
+            card._claim_start_ts = time.time()
             card.set_claiming_state()
 
             worker = SingleAccountClaimWorker(aid)
@@ -4232,6 +4273,11 @@ class MainWindow(QMainWindow):
             self.log(f"⚡  Flotte synchronisée : {started_count} comptes lancés en simultané en direct !", "info")
 
     def _on_account_worker_finished(self, account_id):
+        card = self.account_cards.get(account_id)
+        if card:
+            card.is_claiming = False
+            card._claim_start_ts = 0
+        engine.unmark_account_busy(account_id)
         if account_id in self.claim_workers:
             del self.claim_workers[account_id]
         if not self.claim_workers:
@@ -4284,6 +4330,7 @@ class MainWindow(QMainWindow):
         rarity       = res.get("rarity_summary", "")
 
         if status == "claimed":
+            card.login_fail_count = 0
             card.set_status("🎉  Récupéré !", "#14532d", "#86efac")
             card.set_countdown(sec)
             card.update_pack_data(stock=stock, cards=cards, shot_path=shot,
@@ -4294,6 +4341,7 @@ class MainWindow(QMainWindow):
             self.play_chime()
 
         elif status == "waiting":
+            card.login_fail_count = 0
             card.set_status("✅  Prêt", "#14532d", "#86efac")
             card.set_countdown(sec)
             card.update_pack_data(stock=stock)
@@ -4309,12 +4357,25 @@ class MainWindow(QMainWindow):
             )
 
         elif status == "login_required":
-            card.is_connected = False
-            card.remaining_seconds = 0
-            card.donut.set_idle()
-            card.sub_lbl.setText("Session expirée")
-            card.set_status("⚠  Déconnecté", "#451a03", "#fde68a")
-            self.log(f"[{browser_name}] Session expirée. Reconnectez-vous.", "warning")
+            # Ne PAS déconnecter définitivement le compte : récupération automatique résiliente
+            card.is_connected = True
+            card.login_fail_count = getattr(card, "login_fail_count", 0) + 1
+            if card.login_fail_count <= 2:
+                retry_sec = 60
+                card.set_status("⚠️  Reconnexion…", "#451a03", "#fde68a")
+                card.sub_lbl.setText("Nouvel essai dans 1 min…")
+                self.log(f"[{browser_name}] ⚠️ Session expirée ou latence serveur. Nouvel essai automatique dans 60s…", "warning")
+            elif card.login_fail_count <= 5:
+                retry_sec = 120
+                card.set_status("⚠️  Session expirée", "#451a03", "#fde68a")
+                card.sub_lbl.setText("Réessai dans 2 min (ou Connecter)")
+                self.log(f"[{browser_name}] ⚠️ Session expirée. Réessai dans 2 min. Cliquez sur '🔑 Connecter' si besoin.", "warning")
+            else:
+                retry_sec = 300
+                card.set_status("🔑  À Reconnecter", "#7f1d1d", "#fca5a5")
+                card.sub_lbl.setText("Cliquez sur '🔑 Connecter'")
+                self.log(f"[{browser_name}] ✕ Session expirée persistante. Veuillez cliquer sur '🔑 Connecter'.", "error")
+            card.set_countdown(retry_sec)
 
         elif status == "not_configured":
             card.is_connected = False
@@ -4323,6 +4384,7 @@ class MainWindow(QMainWindow):
             card.set_status("●  Non connecté", "#451a03", "#fde68a")
 
         else:
+            card.is_connected = True
             card.set_status("✕  Erreur", "#7f1d1d", "#fca5a5")
             card.set_countdown(60)
             card.sub_lbl.setText("Réessai dans 1 min…")
