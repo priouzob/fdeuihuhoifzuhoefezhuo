@@ -3402,6 +3402,26 @@ class AccountCard(QFrame):
             self.btn_setup.style().polish(self.btn_setup)
             self.update_configured_state()
 
+    def set_reconnect_needed(self, needed=True):
+        self.is_reconnect_needed = needed
+        if getattr(self, "is_setting_up", False):
+            return
+        if needed:
+            self.btn_setup.setText("🔑  Reconnecter")
+            self.btn_setup.setStyleSheet(
+                "QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #78350f, stop:1 #92400e); "
+                "border: 1px solid #f59e0b; color: #fffbeb; font-size: 11px; font-weight: 800; border-radius: 8px; padding: 7px 12px; } "
+                "QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #92400e, stop:1 #b45309); color: white; border-color: #fbbf24; }"
+            )
+        else:
+            self.btn_setup.setStyleSheet(
+                f"QPushButton {{ background: {C_ELEVATED}; color: {C_TEXT}; border: 1px solid {C_BORDER2}; "
+                f"border-radius: 8px; padding: 7px 12px; font-size: 11px; font-weight: 700; }} "
+                f"QPushButton:hover {{ background: {C_CARD}; border-color: {C_ACCENT}; color: {C_ACCENT2}; }}"
+            )
+            is_conf = engine.is_account_configured(self.account_id)
+            self.btn_setup.setText("🔄  Reconnecter" if is_conf else "🔑  Connecter")
+
     def update_main_badge(self):
         if not hasattr(self, "btn_main_star"):
             return
@@ -3424,7 +3444,7 @@ class AccountCard(QFrame):
         if is_conf:
             self.is_connected = True
             self.set_status("✅  Prêt", "#06371e", "#6ee7b7")
-            self.btn_setup.setText("🔄  Reconnecter")
+            self.set_reconnect_needed(False)
             self.sub_lbl.setText("Prochain paquet dans :")
         else:
             self.is_connected = False
@@ -3432,7 +3452,7 @@ class AccountCard(QFrame):
             self.donut.set_idle()
             self.sub_lbl.setText("Non connecté — cliquez sur Connecter")
             self.set_status("●  Non connecté", "#3f1c04", "#fcd34d")
-            self.btn_setup.setText("🔑  Connecter")
+            self.set_reconnect_needed(False)
 
     def tick_second(self):
         if self.is_connected and self.remaining_seconds > 0:
@@ -4331,6 +4351,7 @@ class MainWindow(QMainWindow):
 
         if status == "claimed":
             card.login_fail_count = 0
+            card.set_reconnect_needed(False)
             card.set_status("🎉  Récupéré !", "#14532d", "#86efac")
             card.set_countdown(sec)
             card.update_pack_data(stock=stock, cards=cards, shot_path=shot,
@@ -4342,6 +4363,7 @@ class MainWindow(QMainWindow):
 
         elif status == "waiting":
             card.login_fail_count = 0
+            card.set_reconnect_needed(False)
             card.set_status("✅  Prêt", "#14532d", "#86efac")
             card.set_countdown(sec)
             card.update_pack_data(stock=stock)
@@ -4366,15 +4388,18 @@ class MainWindow(QMainWindow):
                 card.sub_lbl.setText("Nouvel essai dans 1 min…")
                 self.log(f"[{browser_name}] ⚠️ Session expirée ou latence serveur. Nouvel essai automatique dans 60s…", "warning")
             elif card.login_fail_count <= 5:
-                retry_sec = 120
+                retry_sec = 180
                 card.set_status("⚠️  Session expirée", "#451a03", "#fde68a")
-                card.sub_lbl.setText("Réessai dans 2 min (ou Connecter)")
-                self.log(f"[{browser_name}] ⚠️ Session expirée. Réessai dans 2 min. Cliquez sur '🔑 Connecter' si besoin.", "warning")
+                card.sub_lbl.setText("Réessai dans 3 min (ou Connecter)")
+                self.log(f"[{browser_name}] ⚠️ Session expirée. Réessai dans 3 min. Cliquez sur '🔑 Connecter' si besoin.", "warning")
+                card.set_reconnect_needed(True)
             else:
-                retry_sec = 300
+                retry_sec = 600
                 card.set_status("🔑  À Reconnecter", "#7f1d1d", "#fca5a5")
                 card.sub_lbl.setText("Cliquez sur '🔑 Connecter'")
-                self.log(f"[{browser_name}] ✕ Session expirée persistante. Veuillez cliquer sur '🔑 Connecter'.", "error")
+                card.set_reconnect_needed(True)
+                if card.login_fail_count == 6:
+                    self.log(f"[{browser_name}] ✕ Session expirée persistante. Veuillez cliquer sur '🔑 Connecter' pour réactiver.", "error")
             card.set_countdown(retry_sec)
 
         elif status == "not_configured":
@@ -4388,7 +4413,10 @@ class MainWindow(QMainWindow):
             card.set_status("✕  Erreur", "#7f1d1d", "#fca5a5")
             card.set_countdown(60)
             card.sub_lbl.setText("Réessai dans 1 min…")
-            self.log(f"[{browser_name}] Erreur : {details}", "error")
+            clean_det = str(details)
+            if "Browser logs:" in clean_det:
+                clean_det = clean_det.split("Browser logs:")[0].strip()
+            self.log(f"[{browser_name}] Erreur : {clean_det}", "error")
 
     def start_single_claim(self, account_id):
         card = self.account_cards.get(account_id)
@@ -4439,25 +4467,32 @@ class MainWindow(QMainWindow):
 
     def handle_setup_finished(self, account_id, success, msg):
         card = self.account_cards.get(account_id)
+        acc = engine.get_account_info(account_id)
+        name = acc.get("name", account_id)
         if card:
             card.set_setting_up_mode(False)
             card.set_captcha_mode(False)
-            card.update_configured_state()
-            card.is_connected = True
-            card.set_status("✅  Prêt", "#14532d", "#86efac")
-            card.sub_lbl.setText("Synchronisation en cours…")
-            card.donut.set_claiming()
+            if success:
+                card.login_fail_count = 0
+                card.set_reconnect_needed(False)
+                card.update_configured_state()
+                card.is_connected = True
+                card.set_status("✅  Prêt", "#14532d", "#86efac")
+                card.sub_lbl.setText("Synchronisation en cours…")
+                card.donut.set_claiming()
+            else:
+                card.is_connected = False
+                card.set_reconnect_needed(True)
+                card.set_status("🔑  À Reconnecter", "#7f1d1d", "#fca5a5")
+                card.sub_lbl.setText("Connexion non validée")
+                card.donut.set_idle()
         self.setup_worker = None
 
-        acc = engine.get_account_info(account_id)
-        name = acc.get("name", account_id)
         if success:
-            self.log(f"✅  {name} configuré et prêt !", "success")
+            self.log(f"✅  {name} configuré et session validée !", "success")
+            self.queue_claim([account_id])
         else:
-            self.log(f"Profil enregistré pour {name}. Vérification du statut…", "info")
-
-        # Déclenche immédiatement la vérification et le premier tirage
-        self.queue_claim([account_id])
+            self.log(f"⚠️  {name} : {msg}. Cliquez sur '🔑 Connecter' pour vous identifier.", "warning")
 
 # ─── Entry point ─────────────────────────────────────────────────────────────
 

@@ -79,20 +79,51 @@ def _write_json_cached(file_path, data):
             pass
 
 def sweep_orphan_browser_processes():
-    """Nettoie tous les processus orphelins résiduels de Chromium (headless or crash) qui ne sont pas rattachés à une session active."""
+    """Nettoie uniquement les processus résiduels de Chromium orphelins sans jamais impacter les comptes actifs."""
     try:
         import psutil
+        with _active_claim_accounts_lock:
+            active_claims = set(_active_claim_accounts)
+        with _account_busy_lock:
+            busy_accounts = set(_account_busy_set)
+        active_ids = active_claims | busy_accounts
+
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
                 pname = (proc.info.get('name') or '').lower()
                 if pname in ('chrome.exe', 'brave.exe', 'msedge.exe'):
                     cmdline = " ".join(proc.info.get('cmdline') or []).lower()
                     if "--headless" in cmdline and "wikimasters-autoclaim" in cmdline:
-                        proc.kill()
+                        # Si ce processus appartient à un compte actuellement en cours d'exécution, NE SURTOUT PAS LE TUER
+                        is_active = any(
+                            (f"profiles/{aid.lower()}" in cmdline or f"profiles\\{aid.lower()}" in cmdline)
+                            for aid in active_ids
+                        )
+                        if not is_active:
+                            proc.kill()
             except Exception:
                 pass
     except Exception:
         pass
+
+def format_clean_error(e) -> str:
+    """Nettoie et raccourcit les messages d'erreur Playwright/Chromium pour un affichage propre sans dump de CLI."""
+    if not e:
+        return "Erreur inconnue"
+    msg = str(e)
+    if "Browser logs:" in msg:
+        msg = msg.split("Browser logs:")[0].strip()
+    if "Target page, context or browser has been closed" in msg or "Target closed" in msg:
+        return "Navigateur ou page fermé inopinément."
+    if "Connection closed" in msg:
+        return "Connexion au navigateur interrompue."
+    if "TimeoutError" in type(e).__name__ or ("Timeout" in msg and "exceeded" in msg):
+        return "Délai d'attente dépassé (latence réseau ou serveur)."
+    msg = " ".join(msg.splitlines()).strip()
+    if len(msg) > 160:
+        msg = msg[:157] + "..."
+    return msg
+
 
 def setup_network_optimizations(page):
     """
@@ -1010,7 +1041,7 @@ def claim_account_achievements(page_or_context, account_name, status_callback=No
             safe_notify(status_callback, f"[{account_name}] 🎉 {claimed_count} succès réclamé(s) !", "success")
         return claimed_count
     except Exception as e:
-        safe_notify(status_callback, f"[{account_name}] Erreur vérification succès : {e}", "warning")
+        safe_notify(status_callback, f"[{account_name}] Erreur vérification succès : {format_clean_error(e)}", "warning")
         return 0
 
 
@@ -1132,7 +1163,7 @@ def sync_account_friends(page, current_account, all_accounts, status_callback=No
             else:
                 safe_notify(status_callback, f"[{curr_name}] ⚠️ Utilisateur introuvable : {other_name}", "warning")
     except Exception as e:
-        safe_notify(status_callback, f"[{curr_name}] ❌ Erreur sync amis : {e}", "error")
+        safe_notify(status_callback, f"[{curr_name}] ❌ Erreur sync amis : {format_clean_error(e)}", "error")
 
 def run_claim_achievements_standalone(account_id, status_callback=None):
     """Exécute manuellement la réclamation des succès pour un compte."""
@@ -1293,9 +1324,15 @@ def verify_session(account_id):
             page = enforce_single_page(context)
 
             page.goto("https://wiki-masters.com/pulls", wait_until="domcontentloaded", timeout=20000)
-            time.sleep(2)
+            time.sleep(2.0)
             check_and_handle_verification_modal(page)
+            time.sleep(0.5)
             is_logged_in = ("/login" not in page.url and "/signup" not in page.url)
+            if is_logged_in:
+                has_auth_el = page.locator("button:has-text('Ouvrir'), *:has-text('paquet'), a[href*='logout'], button:has-text('Déconnexion'), div[class*='user']").count() > 0
+                has_login_el = page.locator("input[type='email'], input[type='password'], button:has-text('Se connecter')").count() > 0
+                if has_login_el and not has_auth_el:
+                    is_logged_in = False
             context.close()
             return is_logged_in
     except Exception:
@@ -1393,17 +1430,14 @@ def setup_account(account_id, start_url="https://wiki-masters.com/signup", statu
             safe_notify(status_callback, f"Session validée pour {name} ! Compte prêt et persistant.", "success")
             return True, "Session validée"
         else:
-            if is_account_configured(account_id):
-                safe_notify(status_callback, f"Profil enregistré pour {name}. Prêt pour le tirage.", "info")
-                return True, "Profil enregistré"
-            else:
-                safe_notify(status_callback, f"Fenêtre fermée pour {name} sans données de connexion.", "warning")
-                return False, "Fenêtre fermée"
+            safe_notify(status_callback, f"Connexion non détectée pour {name}. Veuillez vous connecter sur WikiMasters puis valider.", "warning")
+            return False, "Connexion non détectée. Veuillez vous identifier sur WikiMasters."
 
     except Exception as e:
         _active_setup_proc = None
-        safe_notify(status_callback, f"Erreur lors de la configuration : {e}", "error")
-        return False, str(e)
+        clean_err = format_clean_error(e)
+        safe_notify(status_callback, f"Erreur lors de la configuration : {clean_err}", "error")
+        return False, clean_err
 
 def force_window_to_foreground(hwnd):
     """
@@ -1824,7 +1858,6 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
     try:
         safe_notify(status_callback, f"[{name}] Vérification furtive du compte...", "info")
         kill_browser_processes(account_id)
-        sweep_orphan_browser_processes()
 
         with sync_playwright() as p:
             context = None
@@ -2344,12 +2377,13 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                     except Exception:
                         pass
                 kill_browser_processes(account_id)
+                clean_err = format_clean_error(e)
                 return {
                     "status": "error",
                     "browser": name,
                     "browser_key": account_id,
                     "seconds_left": 60,
-                    "details": str(e)
+                    "details": clean_err
                 }
     finally:
         unmark_account_busy(account_id)
