@@ -4480,8 +4480,7 @@ class MainWindow(QMainWindow):
                 card.set_status("🔑  À Reconnecter", "#7f1d1d", "#fca5a5")
                 card.sub_lbl.setText("Cliquez sur '🔑 Connecter'")
                 card.set_reconnect_needed(True)
-                if card.login_fail_count == 6:
-                    self.log(f"[{browser_name}] ✕ Session expirée persistante. Veuillez cliquer sur '🔑 Connecter' pour réactiver.", "error")
+                self.log(f"[{browser_name}] ✕ Session non connectée (expirée). Cliquez sur '🔑 Connecter' pour ouvrir et valider la session.", "warning")
             card.set_countdown(retry_sec)
 
         elif status == "not_configured":

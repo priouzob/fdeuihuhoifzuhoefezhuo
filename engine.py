@@ -1359,28 +1359,32 @@ def verify_session(account_id):
     except Exception:
         return False
 
+_active_setup_context = None
+_active_setup_stop_flag = False
+
 def close_active_setup():
-    global _active_setup_proc
+    global _active_setup_proc, _active_setup_context, _active_setup_stop_flag
+    _active_setup_stop_flag = True
+    if _active_setup_context:
+        try:
+            _active_setup_context.close()
+        except Exception:
+            pass
+        _active_setup_context = None
+
     proc = _active_setup_proc
     if proc is not None and proc.poll() is None:
-        pid = proc.pid
         try:
-            subprocess.run([
-                "powershell", "-NoProfile", "-Command",
-                f"$p = Get-Process -Id {pid} -ErrorAction SilentlyContinue; if ($p) {{ $p.CloseMainWindow() }}"
-            ], timeout=4, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
-            proc.wait(timeout=3)
+            proc.terminate()
+            proc.wait(timeout=2)
         except Exception:
-            try:
-                proc.terminate()
-                proc.wait(timeout=2)
-            except Exception:
-                pass
+            pass
     _active_setup_proc = None
 
-def setup_account(account_id, start_url="https://wiki-masters.com/signup", status_callback=None, browser_type=None):
-    global _active_setup_proc
+def setup_account(account_id, start_url="https://wiki-masters.com/login", status_callback=None, browser_type=None):
+    global _active_setup_proc, _active_setup_context, _active_setup_stop_flag
     close_active_setup()
+    _active_setup_stop_flag = False
 
     acc = get_account_info(account_id)
     name = acc.get("name", account_id)
@@ -1401,62 +1405,93 @@ def setup_account(account_id, start_url="https://wiki-masters.com/signup", statu
     sanitize_window_placement(p_dir)
 
     safe_notify(status_callback, f"Ouverture de {b_name} pour {name}...", "info")
-    safe_notify(status_callback, f"Créez votre compte ou connectez-vous sur WikiMasters, puis fermez {b_name} ou cliquez sur 'J'ai fini'.", "warning")
+    safe_notify(status_callback, f"Connectez-vous à votre compte dans la fenêtre ouverte. La session sera automatiquement validée et synchronisée.", "warning")
+
+    target_url = "https://wiki-masters.com/login" if ("/login" in start_url or "/signup" in start_url) else start_url
 
     try:
-        resolved_p_dir = str(p_dir.resolve())
-        cmd = [
-            exe_path,
-            f"--user-data-dir={resolved_p_dir}",
-            "--profile-directory=Default",
-            "--new-window",
-            "--window-size=1280,850",
-            "--window-position=100,60",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--disable-session-crashed-bubble",
-            "--disable-features=Translate,OptimizationHints",
-            start_url
-        ]
-        creationflags = 0
-        startupinfo = None
-        if sys.platform == "win32":
-            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 1
+        with sync_playwright() as p:
+            context = p.chromium.launch_persistent_context(
+                user_data_dir=str(p_dir),
+                executable_path=exe_path,
+                headless=False,
+                viewport={"width": 1280, "height": 850},
+                args=get_browser_launch_args(account_id)
+            )
+            _active_setup_context = context
+            apply_stealth(context)
+            page = context.pages[0] if context.pages else context.new_page()
 
-        local_proc = subprocess.Popen(cmd, creationflags=creationflags, startupinfo=startupinfo, close_fds=True)
-        _active_setup_proc = local_proc
+            # Forcer la fenêtre visible au premier plan
+            time.sleep(0.5)
+            for _ in range(15):
+                hwnds = find_hwnds_for_account(account_id)
+                if hwnds:
+                    for h in hwnds:
+                        force_window_to_foreground(h)
+                    break
+                time.sleep(0.2)
 
-        for _ in range(15):
-            time.sleep(0.2)
-            hwnds = find_hwnds_for_account(account_id)
-            if hwnds:
-                for h in hwnds:
-                    force_window_to_foreground(h)
-                break
+            try:
+                page.goto(target_url, wait_until="domcontentloaded", timeout=20000)
+            except Exception:
+                pass
 
-        while local_proc.poll() is None:
-            time.sleep(0.8)
+            is_logged_in = False
+            # Attendre jusqu'à ce que l'utilisateur soit connecté ou que la fenêtre soit fermée
+            while not _active_setup_stop_flag:
+                try:
+                    if page.is_closed() or not context.pages:
+                        break
 
-        _active_setup_proc = None
-        time.sleep(1.0)
+                    curr_url = page.url.lower()
+
+                    # 1. Vérifier si l'utilisateur a navigué vers /pulls ou un tableau de bord connecté
+                    if any(path in curr_url for path in ["/pulls", "/collection", "/achievements", "/guild", "/market", "/profile"]):
+                        is_logged_in = True
+                        break
+
+                    # 2. Vérifier les cookies de session Supabase
+                    cookies = context.cookies(["https://wiki-masters.com", "https://www.wiki-masters.com"])
+                    if any("auth-token" in c.get("name", "") for c in cookies):
+                        is_logged_in = True
+                        break
+
+                    # 3. Vérifier les éléments d'interface connectés
+                    if page.locator("a[href*='/pulls'], button:has-text('Ouvrir'), a[href*='/profile']").count() > 0:
+                        is_logged_in = True
+                        break
+
+                    time.sleep(0.8)
+                except Exception as e:
+                    if "closed" in str(e).lower():
+                        break
+                    time.sleep(0.8)
+
+            _active_setup_context = None
+            if is_logged_in:
+                safe_notify(status_callback, f"[{name}] ✅ Connexion détectée ! Enregistrement de la session...", "success")
+                time.sleep(1.5)
+
+            try:
+                context.close()
+            except Exception:
+                pass
+
         kill_browser_processes(account_id)
-        time.sleep(0.5)
 
         safe_notify(status_callback, f"Vérification de la session {name}...", "info")
-
         is_valid = verify_session(account_id)
-        if is_valid:
+        if is_valid or is_logged_in:
             safe_notify(status_callback, f"Session validée pour {name} ! Compte prêt et persistant.", "success")
             return True, "Session validée"
         else:
-            safe_notify(status_callback, f"Connexion non détectée pour {name}. Veuillez vous connecter sur WikiMasters puis valider.", "warning")
-            return False, "Connexion non détectée. Veuillez vous identifier sur WikiMasters."
+            safe_notify(status_callback, f"Connexion non complétée pour {name}. Veuillez cliquer sur '🔑 Connecter' et vous identifier.", "warning")
+            return False, "Connexion non complétée. Veuillez vous identifier sur WikiMasters."
 
     except Exception as e:
-        _active_setup_proc = None
+        _active_setup_context = None
+        kill_browser_processes(account_id)
         clean_err = format_clean_error(e)
         safe_notify(status_callback, f"Erreur lors de la configuration : {clean_err}", "error")
         return False, clean_err
