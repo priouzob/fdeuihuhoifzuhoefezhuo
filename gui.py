@@ -4442,6 +4442,16 @@ class MainWindow(QMainWindow):
             card.sub_lbl.setText("Prochain paquet dans :")
             self.log(f"[{browser_name}] {details}", "info")
 
+        elif status == "rate_limited":
+            card.login_fail_count = 0
+            card.set_reconnect_needed(False)
+            card.is_connected = True
+            card.set_status("🛑  Limite jour", "#3b1c00", "#fcd34d")
+            card.set_countdown(sec)
+            card.update_pack_data(stock=stock)
+            card.sub_lbl.setText("Limite quotidienne atteinte")
+            self.log(f"[{browser_name}] {details}", "warning")
+
         elif status == "captcha_detected":
             card.set_captcha_mode(True)
             card.set_countdown(sec)

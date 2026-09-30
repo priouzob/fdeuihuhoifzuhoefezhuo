@@ -600,6 +600,8 @@
           statusBadgeClass = "bg-amber-950/60 text-amber-300 border border-amber-800/50";
         } else if (acc.is_captcha_blocked) {
           statusBadgeClass = "bg-rose-950/60 text-rose-400 border border-rose-800/50 animate-pulse";
+        } else if (acc.status_text && (acc.status_text.includes("Limite") || acc.status_text.includes("🛑"))) {
+          statusBadgeClass = "bg-amber-950/70 text-amber-400 border border-amber-600/50";
         } else if (!acc.is_connected) {
           statusBadgeClass = "bg-slate-900 text-slate-400 border border-slate-800";
         }

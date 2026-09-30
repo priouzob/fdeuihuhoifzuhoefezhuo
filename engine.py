@@ -14,7 +14,7 @@ import re
 import random
 import subprocess
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
@@ -1290,12 +1290,33 @@ def get_browser_launch_args(account_id=None):
         "--mute-audio",
         "--js-flags=--max-old-space-size=128",
         "--renderer-process-limit=2",
-        "--window-position=-32000,-32000",
-        "--window-size=1,1",
         "--disable-restore-session-state",
         "--disable-session-crashed-bubble",
         "--disable-features=SplashScreen,AutoUpdate"
     ]
+
+def sanitize_window_placement(p_dir):
+    """Corrige les coordonnées d'affichage corrompues (-32000) dans Preferences pour garantir que la fenêtre apparaît au centre de l'écran."""
+    try:
+        pref_file = Path(p_dir) / "Default" / "Preferences"
+        if pref_file.exists():
+            with open(pref_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            wp = data.get("browser", {}).get("window_placement")
+            if wp and isinstance(wp, dict):
+                if wp.get("left", 0) < -1000 or wp.get("top", 0) < -1000 or wp.get("right", 0) <= 0:
+                    wp["left"] = 100
+                    wp["top"] = 60
+                    wp["right"] = 1380
+                    wp["bottom"] = 910
+                    wp["work_area_bottom"] = 1040
+                    wp["work_area_left"] = 0
+                    wp["work_area_right"] = 1920
+                    wp["work_area_top"] = 0
+                    with open(pref_file, "w", encoding="utf-8") as f:
+                        json.dump(data, f)
+    except Exception:
+        pass
 
 def should_run_headless(account_id=None):
     """Google Chrome supporte nativement le headless ultra-léger et discret."""
@@ -1377,6 +1398,7 @@ def setup_account(account_id, start_url="https://wiki-masters.com/signup", statu
 
     kill_browser_processes(account_id)
     clean_profile_locks(account_id, max_wait=1.0)
+    sanitize_window_placement(p_dir)
 
     safe_notify(status_callback, f"Ouverture de {b_name} pour {name}...", "info")
     safe_notify(status_callback, f"Créez votre compte ou connectez-vous sur WikiMasters, puis fermez {b_name} ou cliquez sur 'J'ai fini'.", "warning")
@@ -1452,13 +1474,22 @@ def force_window_to_foreground(hwnd):
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
 
-        # 1. Restaurer la fenêtre si elle est minimisée
+        class _RECT(ctypes.Structure):
+            _fields_ = [('left', ctypes.c_long), ('top', ctypes.c_long), ('right', ctypes.c_long), ('bottom', ctypes.c_long)]
+
+        # 1. Vérifier si la fenêtre est déportée hors-écran (ex: -32000) et la replacer
+        rect = _RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(rect))
+        if rect.left < -500 or rect.top < -500 or (rect.right - rect.left) < 100 or (rect.bottom - rect.top) < 100:
+            user32.MoveWindow(hwnd, 100, 60, 1280, 850, True)
+
+        # 2. Restaurer la fenêtre si elle est minimisée
         if user32.IsIconic(hwnd):
             user32.ShowWindow(hwnd, 9)  # SW_RESTORE
         else:
             user32.ShowWindow(hwnd, 5)  # SW_SHOW
 
-        # 2. AttachThreadInput pour contourner le verrouillage de focus de Windows
+        # 3. AttachThreadInput pour contourner le verrouillage de focus de Windows
         fg_hwnd = user32.GetForegroundWindow()
         cur_tid = kernel32.GetCurrentThreadId()
         fg_tid = user32.GetWindowThreadProcessId(fg_hwnd, None) if fg_hwnd else 0
@@ -1469,11 +1500,11 @@ def force_window_to_foreground(hwnd):
         if target_tid and target_tid != cur_tid:
             user32.AttachThreadInput(cur_tid, target_tid, True)
 
-        # 3. Simuler une touche système pour satisfaire la condition Windows
+        # 4. Simuler une touche système pour satisfaire la condition Windows
         user32.keybd_event(0x12, 0, 0, 0)  # VK_MENU down
         user32.keybd_event(0x12, 0, 2, 0)  # VK_MENU up
 
-        # 4. SetWindowPos avec HWND_TOPMOST puis HWND_NOTOPMOST pour forcer le dessus de la pile Z-Order
+        # 5. SetWindowPos avec HWND_TOPMOST puis HWND_NOTOPMOST pour forcer le dessus de la pile Z-Order
         HWND_TOPMOST = -1
         HWND_NOTOPMOST = -2
         SWP_NOMOVE = 0x0002
@@ -1485,7 +1516,7 @@ def force_window_to_foreground(hwnd):
         user32.BringWindowToTop(hwnd)
         user32.SetForegroundWindow(hwnd)
 
-        # 5. Détacher les threads
+        # 6. Détacher les threads
         if fg_tid and fg_tid != cur_tid:
             user32.AttachThreadInput(cur_tid, fg_tid, False)
         if target_tid and target_tid != cur_tid:
@@ -1532,7 +1563,8 @@ def find_hwnds_for_account(account_id):
                     user32.GetWindowRect(hwnd, ctypes.byref(rect))
                     w = rect.right - rect.left
                     h = rect.bottom - rect.top
-                    if w > 200 and h > 200:
+                    # Ignorer les fenêtres miniatures ou déportées hors de l'écran visible
+                    if w > 200 and h > 200 and rect.left > -500 and rect.top > -500:
                         pid = ctypes.c_ulong()
                         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
                         if pid.value in pids:
@@ -1628,6 +1660,7 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
     if not account_busy:
         kill_browser_processes(account_id)
         clean_profile_locks(account_id, max_wait=1.0)
+    sanitize_window_placement(active_p_dir)
 
     resolved_p_dir = str(active_p_dir.resolve())
     cmd = [
@@ -1877,19 +1910,29 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
 
 
                 captured_api_cards = []
+                last_rate_limit_info = {}
                 def _on_response(res):
                     try:
                         url = res.url.lower()
-                        if ("/api/pull" in url or "/api/cards" in url or "/api/pack" in url) and res.status == 200:
-                            ct = res.headers.get("content-type", "")
-                            if "application/json" in ct:
-                                payload = res.json()
-                                if isinstance(payload, dict):
-                                    items = payload.get("cards") or payload.get("items") or payload.get("data")
-                                    if isinstance(items, list):
-                                        captured_api_cards.extend(items)
-                                elif isinstance(payload, list):
-                                    captured_api_cards.extend(payload)
+                        if "/api/packs/open" in url or "/api/pull" in url or "/api/cards" in url or "/api/pack" in url:
+                            if res.status == 429:
+                                try:
+                                    payload = res.json()
+                                    last_rate_limit_info["error"] = payload.get("error", "Limite quotidienne de paquets atteinte.")
+                                    last_rate_limit_info["retry_after"] = payload.get("retry_after")
+                                    last_rate_limit_info["packs_remaining"] = payload.get("packs_remaining", 0)
+                                except Exception:
+                                    last_rate_limit_info["error"] = "Limite quotidienne atteinte"
+                            elif res.status == 200:
+                                ct = res.headers.get("content-type", "")
+                                if "application/json" in ct:
+                                    payload = res.json()
+                                    if isinstance(payload, dict):
+                                        items = payload.get("cards") or payload.get("items") or payload.get("data")
+                                        if isinstance(items, list):
+                                            captured_api_cards.extend(items)
+                                    elif isinstance(payload, list):
+                                        captured_api_cards.extend(payload)
                     except Exception:
                         pass
                 try:
@@ -2036,7 +2079,53 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                         pack_opened = False
                         open_wait_start = time.time()
                         while time.time() - open_wait_start < 20.0:
-                            # 1. Détecter et résoudre immédiatement une éventuelle pop-up apparue suite au clic Ouvrir
+                            # 1. Vérifier si l'API ou la page a retourné un Rate Limit 429 (Limite quotidienne)
+                            is_rate_limited = False
+                            rate_msg = ""
+                            if last_rate_limit_info.get("error"):
+                                is_rate_limited = True
+                                rate_msg = last_rate_limit_info["error"]
+
+                            if not is_rate_limited:
+                                limit_banner = page.locator("text='Limite quotidienne', div:has-text('Limite quotidienne')").first
+                                if limit_banner.count() > 0 and limit_banner.is_visible():
+                                    is_rate_limited = True
+                                    rate_msg = limit_banner.inner_text().strip()
+
+                            if is_rate_limited:
+                                wait_seconds = 1800  # 30 min par défaut
+                                retry_after_str = last_rate_limit_info.get("retry_after")
+                                if retry_after_str:
+                                    try:
+                                        target_dt = datetime.fromisoformat(retry_after_str.replace("Z", "+00:00"))
+                                        now_dt = datetime.now(target_dt.tzinfo)
+                                        diff = int((target_dt - now_dt).total_seconds())
+                                        if diff > 0:
+                                            wait_seconds = diff + 15
+                                    except Exception:
+                                        pass
+
+                                mins = wait_seconds // 60
+                                hours = mins // 60
+                                rem_m = mins % 60
+                                time_fmt = f"{hours}h{rem_m:02d}" if hours > 0 else f"{mins} min"
+                                reset_clock = (datetime.now() + timedelta(seconds=wait_seconds)).strftime("%H:%M")
+
+                                safe_notify(status_callback, f"[{name}] 🛑 Limite quotidienne de paquets atteinte ({stock} paquets en réserve). Reprise automatique à {reset_clock} (dans {time_fmt}).", "warning")
+
+                                context.close()
+                                kill_browser_processes(account_id)
+                                return {
+                                    "status": "rate_limited",
+                                    "browser": name,
+                                    "browser_key": account_id,
+                                    "seconds_left": wait_seconds,
+                                    "timer_str": f"{wait_seconds // 60:02d}:{wait_seconds % 60:02d}",
+                                    "stock": f"{stock} / 10",
+                                    "details": f"🛑 Limite quotidienne atteinte ({stock} paquets en réserve). Reprise à {reset_clock}."
+                                }
+
+                            # 2. Détecter et résoudre immédiatement une éventuelle pop-up apparue suite au clic Ouvrir
                             if is_bot_challenge_active(page):
                                 if check_and_handle_verification_modal(page, status_callback) or check_and_handle_turnstile(page):
                                     time.sleep(0.6)

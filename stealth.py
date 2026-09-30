@@ -11,17 +11,15 @@ import random
 
 STEALTH_JS = """
 (() => {
-    // 1. Masquer complètement navigator.webdriver
+    // 1. Masquer proprement navigator.webdriver
     try {
-        delete Object.getPrototypeOf(navigator).webdriver;
+        if ('webdriver' in navigator) {
+            delete Object.getPrototypeOf(navigator).webdriver;
+        }
     } catch (e) {}
     try {
         delete navigator.webdriver;
     } catch (e) {}
-    Object.defineProperty(navigator, 'webdriver', {
-        get: () => undefined,
-        configurable: true
-    });
 
     // 2. Supprimer les variables injectées par Chromium CDP / Selenium
     const cleanupAutomationKeys = () => {
@@ -117,24 +115,6 @@ STEALTH_JS = """
             return getParameterProto2.apply(this, arguments);
         };
     }
-
-    // 9. Iframe isolation protection : s'assure que les iframes Turnstile ne voient jamais webdriver
-    try {
-        const origContentWindow = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow').get;
-        Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
-            get: function() {
-                const win = origContentWindow.apply(this, arguments);
-                if (win) {
-                    try {
-                        delete win.navigator.webdriver;
-                        Object.defineProperty(win.navigator, 'webdriver', { get: () => undefined, configurable: true });
-                    } catch (e) {}
-                }
-                return win;
-            },
-            configurable: true
-        });
-    } catch (e) {}
 })();
 """
 
