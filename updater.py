@@ -124,7 +124,7 @@ def perform_update(status_callback=None, timeout=5):
         if not any(forbidden in f.lower() for forbidden in FORBIDDEN_FILES)
         and not f.startswith("/")           # pas de chemins absolus
         and ".." not in f                  # pas de path traversal
-        and f.endswith(".py")              # uniquement des fichiers Python
+        and (f.endswith(".py") or f.endswith(".html") or f.endswith(".js") or f.endswith(".css"))
     ]
 
     log(f"Téléchargement de la mise à jour v{remote_v}...")
@@ -134,7 +134,9 @@ def perform_update(status_callback=None, timeout=5):
         for filename in files_to_download:
             file_url = f"https://raw.githubusercontent.com/{repo}/{branch}/{filename}"
             target_path = BASE_DIR / filename
+            target_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = BASE_DIR / f"{filename}.tmp"
+            tmp_path.parent.mkdir(parents=True, exist_ok=True)
 
             req = urllib.request.Request(
                 file_url,

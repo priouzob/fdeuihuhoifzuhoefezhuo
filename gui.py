@@ -55,6 +55,8 @@ from PySide6.QtGui import QFont, QIcon, QPixmap, QColor, QPainter, QLinearGradie
 
 import engine
 import updater
+import web_server
+from web_server import WebBridge, start_web_server, broadcast_log
 
 # ─── Palette de couleurs ────────────────────────────────────────────────────
 C_BG       = "#050812"   # Fond principal : noir navy profond
@@ -2798,6 +2800,8 @@ class AccountCard(QFrame):
         self.is_connected    = False
         self.is_claiming     = False
         self.is_captcha_blocked = False
+        self.last_stock      = None
+        self.last_pulled_cards = []
 
         self.setFixedWidth(340)
         self.setStyleSheet(
@@ -3305,6 +3309,7 @@ class AccountCard(QFrame):
                         self.lbl_rarity.setText(f"⭐  {rs}")
                     cards = entry.get("cards", [])
                     if cards:
+                        self.last_pulled_cards = cards
                         shown = cards[:3]
                         more  = f"  (+{len(cards)-3})" if len(cards) > 3 else ""
                         self.lbl_cards.setText("  •  " + "  •  ".join(shown) + more)
@@ -3478,7 +3483,11 @@ class AccountCard(QFrame):
 
     def update_pack_data(self, stock=None, cards=None, shot_path=None, packs_opened=0, rarity_summary=""):
         if stock is not None:
+            self.last_stock = stock
             self.lbl_stock.setText(f"📦  Stock : {stock}")
+
+        if cards:
+            self.last_pulled_cards = cards
 
         if packs_opened > 0:
             self.total_claimed += packs_opened
@@ -3545,6 +3554,21 @@ class MainWindow(QMainWindow):
         self.sound_enabled = True
         self._tick_count   = 0
         self.account_cards = {}
+
+        # Pont & Serveur Web local synchronisé en temps réel
+        self.web_bridge = WebBridge()
+        self.web_bridge.claim_requested.connect(self.trigger_claim_cycle)
+        self.web_bridge.refresh_requested.connect(self.start_single_refresh)
+        self.web_bridge.toggle_pause_requested.connect(self.toggle_loop)
+        self.web_bridge.sync_friends_requested.connect(self.sync_all_friends)
+        self.web_bridge.setup_requested.connect(lambda aid, url: self.start_account_setup(aid, start_url=url))
+        self.web_bridge.rename_requested.connect(self._handle_web_rename_account)
+        self.web_bridge.set_main_requested.connect(self.handle_set_main_account)
+        self.web_bridge.delete_requested.connect(self._handle_web_delete_account)
+        self.web_bridge.add_account_requested.connect(self._handle_web_add_account)
+
+        web_server.set_bridge(self.web_bridge, self)
+        self.web_port = start_web_server(self, port=5050)
 
         self.init_ui()
 
@@ -3616,6 +3640,17 @@ class MainWindow(QMainWindow):
         )
         self.btn_update.clicked.connect(lambda: self.check_updates_gui(silent_if_none=False))
         hh.addWidget(self.btn_update)
+
+        self.btn_web_version = QPushButton("🌐  Version Web")
+        self.btn_web_version.setObjectName("btnSmall")
+        self.btn_web_version.setToolTip("Ouvrir l'interface Web moderne et animée en local dans votre navigateur (Synchronisée en direct)")
+        self.btn_web_version.setStyleSheet(
+            "QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1e1b4b, stop:1 #312e81); "
+            "color: #c7d2fe; border: 1px solid #818cf8; font-weight: 800; border-radius: 7px; padding: 4px 11px; } "
+            "QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3730a3, stop:1 #4f46e5); color: white; border-color: #a5b4fc; }"
+        )
+        self.btn_web_version.clicked.connect(self.open_web_dashboard)
+        hh.addWidget(self.btn_web_version)
 
         self.chk_pin = QCheckBox("📌 Épingler")
         self.chk_pin.setToolTip("Maintenir la fenêtre au premier plan sur second écran")
@@ -3998,6 +4033,40 @@ class MainWindow(QMainWindow):
             self.update_global_stats()
             self.log(f"🗑️ Compte '{name}' et ses données locales supprimés.", "warning")
 
+    def open_web_dashboard(self):
+        import webbrowser
+        port = getattr(self, "web_port", 5050)
+        url = f"http://localhost:{port}"
+        webbrowser.open(url)
+        self.log(f"🌐 Dashboard Web ouvert dans votre navigateur : {url}", "info")
+
+    def _handle_web_rename_account(self, account_id, new_name):
+        card = self.account_cards.get(account_id)
+        if card:
+            card.set_account_name(new_name)
+        else:
+            engine.rename_account(account_id, new_name)
+        self.log(f"✏️  Compte renommé en '{new_name}' depuis l'interface Web.", "success")
+
+    def _handle_web_delete_account(self, account_id):
+        acc = engine.get_account_info(account_id)
+        name = acc.get("name", account_id)
+        engine.delete_account(account_id, remove_files=True)
+        self.reload_account_cards()
+        self.update_global_stats()
+        self.log(f"🗑️ Compte '{name}' supprimé depuis l'interface Web.", "warning")
+
+    def _handle_web_add_account(self, name, browser_type="chrome"):
+        try:
+            b_name = engine.SUPPORTED_BROWSERS.get(browser_type.lower(), {}).get("name", "Navigateur")
+            new_acc = engine.add_new_account(name, browser_type=browser_type)
+            self.reload_account_cards()
+            self.update_global_stats()
+            self.log(f"➕ Compte '{name}' créé avec {b_name} depuis l'interface Web ! Démarrage de la configuration…", "success")
+            self.start_account_setup(new_acc["id"], browser_type=browser_type)
+        except Exception as e:
+            self.log(f"✕ Erreur lors de l'ajout du compte via Web : {e}", "error")
+
     def launch_account_browser(self, account_id, browser_type=None):
         acc = engine.get_account_info(account_id)
         name = acc.get("name", account_id)
@@ -4132,6 +4201,10 @@ class MainWindow(QMainWindow):
 
     def log(self, message, level="info"):
         now = datetime.now().strftime("%H:%M:%S")
+        try:
+            broadcast_log(now, message, level)
+        except Exception:
+            pass
         colors = {
             "info":    C_ACCENT2,
             "success": C_GREEN,

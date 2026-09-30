@@ -1,5 +1,5 @@
 {
-  "version": "2.6.8",
+  "version": "2.7.0",
   "github_repo": "priouzob/fdeuihuhoifzuhoefezhuo",
   "branch": "main",
   "files": [
@@ -8,6 +8,8 @@
     "guild.py",
     "stealth.py",
     "transfer.py",
-    "updater.py"
+    "updater.py",
+    "web_server.py",
+    "web/index.html"
   ]
 }

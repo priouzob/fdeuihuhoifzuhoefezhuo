@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WikiMasters Fleet — Dashboard Web Local</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              400: '#38bdf8',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              700: '#0369a1',
+              900: '#0c4a6e',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    body {
+      background-color: #030712;
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(14, 165, 233, 0.08) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(168, 85, 247, 0.08) 0px, transparent 50%),
+        radial-gradient(at 50% 100%, rgba(16, 185, 129, 0.05) 0px, transparent 50%);
+      background-attachment: fixed;
+    }
+    
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #334155; }
+
+    /* Holographic card shine effect */
+    .card-shine {
+      position: relative;
+      overflow: hidden;
+    }
+    .card-shine::after {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: linear-gradient(
+        60deg,
+        transparent 30%,
+        rgba(255, 255, 255, 0.1) 45%,
+        rgba(255, 255, 255, 0.25) 50%,
+        rgba(255, 255, 255, 0.1) 55%,
+        transparent 70%
+      );
+      transform: rotate(35deg) translateY(-100%);
+      transition: transform 0.75s ease-in-out;
+      pointer-events: none;
+    }
+    .card-shine:hover::after {
+      transform: rotate(35deg) translateY(100%);
+    }
+
+    /* Glow utilities */
+    .glow-cyan { box-shadow: 0 0 25px -5px rgba(56, 189, 248, 0.35); }
+    .glow-gold { box-shadow: 0 0 25px -5px rgba(245, 158, 11, 0.4); }
+    .glow-purple { box-shadow: 0 0 25px -5px rgba(168, 85, 247, 0.35); }
+    .glow-green { box-shadow: 0 0 25px -5px rgba(52, 211, 153, 0.35); }
+  </style>
+</head>
+
+<body class="text-slate-100 min-h-screen flex flex-col font-sans selection:bg-brand-500 selection:text-white">
+
+  <!-- ─── TOP NAVBAR ──────────────────────────────────────────────────────── -->
+  <header class="sticky top-0 z-40 backdrop-blur-xl bg-slate-950/80 border-b border-slate-800/80 px-4 lg:px-8 py-3.5 transition-all">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+      
+      <!-- Brand & Status -->
+      <div class="flex items-center gap-3.5">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-brand-500/20 ring-1 ring-white/20">
+          <span class="text-xl">🎴</span>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-extrabold text-base tracking-tight text-white">WikiMasters Fleet</h1>
+            <span id="versionBadge" class="text-[10px] font-mono font-bold bg-slate-800 text-brand-400 px-2 py-0.5 rounded-full border border-brand-500/30">v2.6.8</span>
+          </div>
+          <div class="flex items-center gap-2 mt-0.5 text-xs text-slate-400">
+            <span class="inline-flex items-center gap-1.5 text-emerald-400 font-medium">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              Synchronisé en Direct
+            </span>
+            <span class="text-slate-600">•</span>
+            <span id="headerSyncText">Google Chrome Multi-Comptes</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Fleet Stats Banner -->
+      <div class="hidden md:flex items-center gap-4 bg-slate-900/60 border border-slate-800/80 rounded-xl px-4 py-2 text-xs">
+        <div class="flex items-center gap-2">
+          <span class="text-amber-400 text-sm">📦</span>
+          <div>
+            <div class="text-[10px] text-slate-400 uppercase font-semibold">Total Paquets</div>
+            <div id="statTotalPacks" class="font-bold text-slate-100 font-mono text-sm">0</div>
+          </div>
+        </div>
+        <div class="w-px h-6 bg-slate-800"></div>
+        <div class="flex items-center gap-2">
+          <span class="text-emerald-400 text-sm">🃏</span>
+          <div>
+            <div class="text-[10px] text-slate-400 uppercase font-semibold">Collection</div>
+            <div id="statTotalCards" class="font-bold text-slate-100 font-mono text-sm">0 cartes</div>
+          </div>
+        </div>
+        <div class="w-px h-6 bg-slate-800"></div>
+        <div class="flex items-center gap-2">
+          <span class="text-brand-400 text-sm">⏱️</span>
+          <div>
+            <div class="text-[10px] text-slate-400 uppercase font-semibold">Prochain Tirage</div>
+            <div id="statNextPull" class="font-bold text-brand-300 font-mono text-sm">--:--</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center gap-2">
+        <button id="btnClaimAll" onclick="claimAll()" class="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-brand-600/30 transition-all active:scale-95 border border-brand-400/30">
+          <i data-lucide="zap" class="w-4 h-4"></i>
+          <span>Tirer Tout</span>
+        </button>
+
+        <button id="btnPause" onclick="togglePause()" class="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-semibold border border-slate-700/60 transition-all">
+          <i id="pauseIcon" data-lucide="pause" class="w-4 h-4"></i>
+          <span id="pauseText">Pause</span>
+        </button>
+
+        <!-- Dropdown Modals Navigation -->
+        <div class="flex items-center gap-1.5 bg-slate-900/80 p-1 rounded-xl border border-slate-800">
+          <button onclick="openModal('modalTransfer')" title="Dons & Transferts" class="p-2 hover:bg-emerald-950/60 hover:text-emerald-400 rounded-lg text-slate-400 transition-colors">
+            <i data-lucide="gift" class="w-4 h-4"></i>
+          </button>
+          <button onclick="openModal('modalTop10')" title="Top 10 des Cartes" class="p-2 hover:bg-purple-950/60 hover:text-purple-400 rounded-lg text-slate-400 transition-colors">
+            <i data-lucide="trophy" class="w-4 h-4"></i>
+          </button>
+          <button onclick="syncFriends()" title="Interconnecter les amis" class="p-2 hover:bg-indigo-950/60 hover:text-indigo-400 rounded-lg text-slate-400 transition-colors">
+            <i data-lucide="users" class="w-4 h-4"></i>
+          </button>
+          <button onclick="openModal('modalGuild')" title="Guilde" class="p-2 hover:bg-amber-950/60 hover:text-amber-400 rounded-lg text-slate-400 transition-colors">
+            <i data-lucide="shield" class="w-4 h-4"></i>
+          </button>
+          <button onclick="openModal('modalDiscord')" title="Discord Webhook" class="p-2 hover:bg-indigo-950/60 hover:text-indigo-400 rounded-lg text-slate-400 transition-colors">
+            <i data-lucide="message-square" class="w-4 h-4"></i>
+          </button>
+          <button onclick="openModal('modalAddAccount')" title="Ajouter un compte" class="p-2 hover:bg-brand-950/60 hover:text-brand-400 rounded-lg text-slate-400 transition-colors">
+            <i data-lucide="user-plus" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <!-- Sound toggle -->
+        <button id="btnSound" onclick="toggleSound()" title="Sons d'alerte" class="p-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white rounded-xl border border-slate-800 transition-all">
+          <i id="soundIcon" data-lucide="volume-2" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- ─── MAIN CONTENT ────────────────────────────────────────────────────── -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-8 space-y-8">
+    
+    <!-- Account Cards Grid -->
+    <section>
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <h2 class="text-sm font-bold uppercase tracking-wider text-slate-400">Flotte de Comptes</h2>
+          <span id="accountCountBadge" class="bg-slate-800 text-slate-300 font-mono text-xs px-2 py-0.5 rounded-full font-bold">0</span>
+        </div>
+        <div class="text-xs text-slate-500">
+          Moteur Google Chrome persistant et isolé
+        </div>
+      </div>
+
+      <div id="cardsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <!-- Rendu dynamique des cartes de comptes ici -->
+      </div>
+    </section>
+
+    <!-- ─── LIVE ACTIVITY CONSOLE ─────────────────────────────────────────── -->
+    <section class="bg-slate-950/70 border border-slate-800/80 rounded-2xl overflow-hidden shadow-2xl backdrop-blur-xl">
+      <div class="flex items-center justify-between px-5 py-3.5 border-b border-slate-800/70 bg-slate-900/40">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+            <span class="font-bold text-xs uppercase tracking-wider text-slate-300">Journal d'Activité en Direct</span>
+          </div>
+          <!-- Filter tabs -->
+          <div class="hidden sm:flex items-center gap-1 bg-slate-900/90 p-0.5 rounded-lg border border-slate-800 text-[11px]">
+            <button onclick="setLogFilter('all')" id="filterAll" class="px-2.5 py-1 rounded-md bg-brand-600 text-white font-medium">Tous</button>
+            <button onclick="setLogFilter('success')" id="filterSuccess" class="px-2.5 py-1 rounded-md hover:bg-slate-800 text-slate-400 font-medium">Succès</button>
+            <button onclick="setLogFilter('warning')" id="filterWarning" class="px-2.5 py-1 rounded-md hover:bg-slate-800 text-slate-400 font-medium">Alertes</button>
+            <button onclick="setLogFilter('error')" id="filterError" class="px-2.5 py-1 rounded-md hover:bg-slate-800 text-slate-400 font-medium">Erreurs</button>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer select-none">
+            <input type="checkbox" id="chkAutoScroll" checked class="rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-0">
+            <span>Défilement auto</span>
+          </label>
+          <button onclick="copyLogs()" title="Copier le journal" class="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg border border-slate-800 text-xs transition-colors">
+            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+          </button>
+          <button onclick="clearLogs()" title="Effacer" class="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-400 rounded-lg border border-slate-800 text-xs transition-colors">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Logs content box -->
+      <div id="logContainer" class="h-48 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed space-y-1">
+        <!-- Logs insérés dynamiquement -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ─── MODALS ──────────────────────────────────────────────────────────── -->
+
+  <!-- Top 10 Modal -->
+  <div id="modalTop10" class="fixed inset-0 z-50 hidden bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-slate-950 border border-slate-800 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+      <div class="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-900/50">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-xl bg-purple-950/60 text-purple-400 border border-purple-800/40">
+            <i data-lucide="trophy" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="font-extrabold text-base text-white">Classement des 10 Meilleures Cartes</h3>
+            <p class="text-xs text-slate-400">Cartes les plus prestigieuses automatiquement conservées par compte</p>
+          </div>
+        </div>
+        <button onclick="closeModal('modalTop10')" class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Account Filter Tabs -->
+      <div id="top10Tabs" class="flex gap-2 p-3 border-b border-slate-800 bg-slate-900/30 overflow-x-auto">
+        <!-- Tabs ajoutés dynamiquement -->
+      </div>
+
+      <!-- Cards Grid -->
+      <div id="top10Grid" class="flex-1 overflow-y-auto p-5 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+        <!-- Cartes Top 10 ajoutées dynamiquement -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Dons & Transferts Modal -->
+  <div id="modalTransfer" class="fixed inset-0 z-50 hidden bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-slate-950 border border-slate-800 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+      <div class="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-900/50">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-xl bg-emerald-950/60 text-emerald-400 border border-emerald-800/40">
+            <i data-lucide="gift" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="font-extrabold text-base text-white">Dons & Transferts Groupés</h3>
+            <p class="text-xs text-slate-400">Échangez vos cartes par lots de 100 ou centralisez vers votre compte principal</p>
+          </div>
+        </div>
+        <button onclick="closeModal('modalTransfer')" class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-6 space-y-6 overflow-y-auto">
+        <!-- Mode Centraliser -->
+        <div class="bg-slate-900/60 border border-emerald-500/20 rounded-xl p-5 space-y-4">
+          <div class="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+            <i data-lucide="sparkles" class="w-4 h-4"></i>
+            <span>Centralisation Automatique (1-Clic)</span>
+          </div>
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Transfère automatiquement toutes les cartes disponibles de TOUS vos comptes secondaires vers le compte sélectionné ci-dessous.
+          </p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1.5">Compte Destinataire :</label>
+              <select id="transferTargetSelect" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:border-brand-500 focus:outline-none">
+                <!-- Rempli dynamiquement -->
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1.5">Raretés à transférer :</label>
+              <div class="flex items-center gap-2 pt-2 text-xs">
+                <label class="flex items-center gap-1.5"><input type="checkbox" id="chkC" checked class="rounded text-brand-500"> Communes (C)</label>
+                <label class="flex items-center gap-1.5"><input type="checkbox" id="chkPC" checked class="rounded text-brand-500"> Peu Communes (PC)</label>
+                <label class="flex items-center gap-1.5"><input type="checkbox" id="chkR" class="rounded text-brand-500"> Rares (R)</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-2">
+            <button onclick="executeBulkDonation()" class="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-emerald-950 transition-all flex items-center justify-center gap-2">
+              <i data-lucide="send" class="w-4 h-4"></i>
+              <span>Lancer la Centralisation vers le compte cible</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Guilde Modal -->
+  <div id="modalGuild" class="fixed inset-0 z-50 hidden bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-slate-950 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+      <div class="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-900/50">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-xl bg-amber-950/60 text-amber-400 border border-amber-800/40">
+            <i data-lucide="shield" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="font-extrabold text-base text-white">Gestion de Guilde</h3>
+            <p class="text-xs text-slate-400">Intégration automatique de tous vos comptes dans votre guilde</p>
+          </div>
+        </div>
+        <button onclick="closeModal('modalGuild')" class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-6 space-y-4 overflow-y-auto">
+        <div class="bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+          <div>
+            <div class="text-xs text-slate-400 font-semibold uppercase">Guilde Principale</div>
+            <div id="guildName" class="text-base font-extrabold text-amber-300">Synchronisation…</div>
+          </div>
+          <button onclick="syncGuild()" class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-all">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            <span>Intégrer tous les comptes</span>
+          </button>
+        </div>
+        <div id="guildMembersList" class="space-y-2 text-xs text-slate-300">
+          <!-- Membres insérés ici -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Discord Modal -->
+  <div id="modalDiscord" class="fixed inset-0 z-50 hidden bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-slate-950 border border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
+      <div class="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-900/50">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-xl bg-indigo-950/60 text-indigo-400 border border-indigo-800/40">
+            <i data-lucide="message-square" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="font-extrabold text-base text-white">Alertes Discord Webhook</h3>
+            <p class="text-xs text-slate-400">Recevez des notifications pour les cartes rares et alertes</p>
+          </div>
+        </div>
+        <button onclick="closeModal('modalDiscord')" class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-6 space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1.5">URL du Webhook Discord :</label>
+          <input type="text" id="discordWebhookUrl" placeholder="https://discord.com/api/webhooks/..." class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-white focus:border-brand-500 focus:outline-none font-mono">
+        </div>
+        <div class="space-y-2 pt-1 text-xs text-slate-300">
+          <label class="flex items-center gap-2">
+            <input type="checkbox" id="discordRareOnly" checked class="rounded text-brand-500">
+            <span>Notifier uniquement pour les cartes rares (SR, UR, Légendaires)</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" id="discordNotifyErrors" checked class="rounded text-brand-500">
+            <span>Notifier les défis anti-bot et alertes de session</span>
+          </label>
+        </div>
+        <div class="flex items-center gap-3 pt-4">
+          <button onclick="testDiscordWebhook()" class="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 font-semibold rounded-xl text-xs transition-colors">
+            Tester le Webhook
+          </button>
+          <button onclick="saveDiscordSettings()" class="flex-1 py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded-xl text-xs transition-colors">
+            Enregistrer
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ajouter un Compte Modal -->
+  <div id="modalAddAccount" class="fixed inset-0 z-50 hidden bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-slate-950 border border-slate-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+      <div class="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-900/50">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-xl bg-brand-950/60 text-brand-400 border border-brand-800/40">
+            <i data-lucide="user-plus" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="font-extrabold text-base text-white">Ajouter un Compte</h3>
+            <p class="text-xs text-slate-400">Configurez un nouveau profil navigateur isolé</p>
+          </div>
+        </div>
+        <button onclick="closeModal('modalAddAccount')" class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-6 space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1.5">Nom d'affichage du compte :</label>
+          <input type="text" id="newAccountName" placeholder="Ex: compte_4 ou Pseudo" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-white focus:border-brand-500 focus:outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1.5">Navigateur dédié :</label>
+          <select id="newAccountBrowser" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-white focus:border-brand-500 focus:outline-none">
+            <option value="chrome">Google Chrome (Recommandé)</option>
+            <option value="brave">Brave Browser</option>
+            <option value="edge">Microsoft Edge</option>
+          </select>
+        </div>
+        <div class="pt-2">
+          <button onclick="submitAddAccount()" class="w-full py-3 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded-xl text-xs transition-all shadow-lg shadow-brand-950">
+            Créer et Ouvrir le Navigateur
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card Lightbox Modal -->
+  <div id="modalLightbox" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-lg flex items-center justify-center p-4" onclick="closeModal('modalLightbox')">
+    <div class="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-sm w-full text-center space-y-4 card-shine" onclick="event.stopPropagation()">
+      <div id="lightboxRarityBadge" class="inline-block px-3 py-1 rounded-full text-xs font-bold font-mono"></div>
+      <div class="relative w-48 h-64 mx-auto rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-slate-900 flex items-center justify-center">
+        <img id="lightboxImg" src="" alt="Carte" class="w-full h-full object-cover">
+      </div>
+      <div>
+        <h4 id="lightboxTitle" class="text-base font-extrabold text-white"></h4>
+        <p id="lightboxSubtitle" class="text-xs text-slate-400 mt-1"></p>
+      </div>
+      <div class="pt-2">
+        <button onclick="closeModal('modalLightbox')" class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 rounded-xl text-xs font-semibold transition-colors">
+          Fermer
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── SCRIPT APPLICATION ──────────────────────────────────────────────── -->
+  <script>
+    let state = {
+      accounts: [],
+      stats: {},
+      is_running: true,
+      logs: [],
+      sound_enabled: true,
+      log_filter: 'all'
+    };
+
+    // Audio Chime synthétisé via Web Audio API (zéro dépendance externe)
+    function playChime(freq = 587.33) {
+      if (!state.sound_enabled) return;
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.45);
+      } catch(e) {}
+    }
+
+    // Palette des raretés
+    const RARITY_COLORS = {
+      'L':  { bg: 'bg-rose-950/80', text: 'text-rose-300', border: 'border-rose-500/40', badge: 'bg-rose-500 text-white', label: 'Légendaire' },
+      'UR': { bg: 'bg-amber-950/80', text: 'text-amber-300', border: 'border-amber-500/40', badge: 'bg-amber-500 text-black', label: 'Ultra Rare' },
+      'SR': { bg: 'bg-purple-950/80', text: 'text-purple-300', border: 'border-purple-500/40', badge: 'bg-purple-500 text-white', label: 'Super Rare' },
+      'R':  { bg: 'bg-blue-950/80', text: 'text-blue-300', border: 'border-blue-500/40', badge: 'bg-blue-500 text-white', label: 'Rare' },
+      'PC': { bg: 'bg-teal-950/80', text: 'text-teal-300', border: 'border-teal-500/40', badge: 'bg-teal-500 text-white', label: 'Peu Commune' },
+      'C':  { bg: 'bg-slate-900', text: 'text-slate-400', border: 'border-slate-700/40', badge: 'bg-slate-700 text-white', label: 'Commune' },
+    };
+
+    // Formatage MM:SS
+    function formatTime(sec) {
+      if (!sec || sec <= 0) return "00:00";
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    // Synchronisation de l'état
+    async function fetchState() {
+      try {
+        const res = await fetch('/api/state');
+        if (res.ok) {
+          const data = await res.json();
+          updateUI(data);
+        }
+      } catch (err) {
+        console.error("Erreur synchro:", err);
+      }
+    }
+
+    // Rendu de l'UI
+    function updateUI(data) {
+      state.accounts = data.accounts || [];
+      state.stats = data.stats || {};
+      state.is_running = data.is_running;
+
+      // Stats du Header
+      document.getElementById('statTotalPacks').innerText = Number(state.stats.total_packs || 0).toLocaleString();
+      document.getElementById('statTotalCards').innerText = `${Number(state.stats.total_cards || 0).toLocaleString()} cartes`;
+      document.getElementById('accountCountBadge').innerText = state.accounts.length;
+      if (data.version) {
+        document.getElementById('versionBadge').innerText = `v${data.version}`;
+      }
+
+      // Prochain tirage global
+      const minSec = Math.min(...state.accounts.map(a => a.remaining_seconds || 9999));
+      document.getElementById('statNextPull').innerText = minSec < 9000 ? formatTime(minSec) : "--:--";
+
+      // Bouton Pause
+      const pauseText = document.getElementById('pauseText');
+      const pauseIcon = document.getElementById('pauseIcon');
+      if (state.is_running) {
+        pauseText.innerText = "Pause";
+        pauseIcon.setAttribute('data-lucide', 'pause');
+      } else {
+        pauseText.innerText = "Reprendre";
+        pauseIcon.setAttribute('data-lucide', 'play');
+      }
+
+      // Rendu des Cartes de Comptes
+      renderAccountCards();
+
+      // Rendu des logs
+      if (data.logs && data.logs.length) {
+        renderLogs(data.logs);
+      }
+
+      lucide.createIcons();
+    }
+
+    // Rendu des Cartes de Comptes
+    function renderAccountCards() {
+      const grid = document.getElementById('cardsGrid');
+      grid.innerHTML = '';
+
+      state.accounts.forEach((acc, idx) => {
+        const cardEl = document.createElement('div');
+        cardEl.className = "bg-slate-950/70 border border-slate-800/80 hover:border-slate-700 rounded-3xl p-5 shadow-2xl backdrop-blur-xl flex flex-col justify-between transition-all hover:-translate-y-1 relative overflow-hidden group";
+
+        // Circonférence Donut SVG
+        const radius = 38;
+        const circ = 2 * Math.PI * radius;
+        const totalTimerSec = 600; // 10 min par défaut
+        const leftSec = acc.remaining_seconds || 0;
+        const progress = Math.max(0, Math.min(1, (totalTimerSec - leftSec) / totalTimerSec));
+        const offset = circ - (progress * circ);
+
+        // Status pill
+        let statusBadgeClass = "bg-emerald-950/60 text-emerald-400 border border-emerald-800/40";
+        if (acc.is_reconnect_needed) {
+          statusBadgeClass = "bg-amber-950/60 text-amber-300 border border-amber-800/50";
+        } else if (acc.is_captcha_blocked) {
+          statusBadgeClass = "bg-rose-950/60 text-rose-400 border border-rose-800/50 animate-pulse";
+        } else if (!acc.is_connected) {
+          statusBadgeClass = "bg-slate-900 text-slate-400 border border-slate-800";
+        }
+
+        // Cartes récentes (5 slots)
+        let cardsHtml = '';
+        const recent = (acc.last_cards || []).slice(0, 5);
+        for (let i = 0; i < 5; i++) {
+          const c = recent[i];
+          if (c) {
+            const r = c.rarity || 'C';
+            const rCfg = RARITY_COLORS[r] || RARITY_COLORS['C'];
+            const title = c.wikipedia_title || c.title || 'Carte';
+            const img = c.image_url || '';
+            cardsHtml += `
+              <div onclick='openLightbox(${JSON.stringify(c)})' title="${title} (${rCfg.label})" class="relative w-12 h-16 rounded-lg overflow-hidden border ${rCfg.border} bg-slate-900 cursor-pointer card-shine group/card flex-shrink-0">
+                ${img ? `<img src="${img}" class="w-full h-full object-cover">` : `<div class="w-full h-full flex items-center justify-center text-[10px] text-slate-500 font-bold">${r}</div>`}
+                <span class="absolute bottom-0 inset-x-0 text-[8px] font-mono font-bold text-center ${rCfg.badge} py-0.2">${r}</span>
+              </div>
+            `;
+          } else {
+            cardsHtml += `
+              <div class="w-12 h-16 rounded-lg border border-dashed border-slate-800/80 bg-slate-900/30 flex items-center justify-center text-slate-700 text-xs flex-shrink-0">
+                <span>·</span>
+              </div>
+            `;
+          }
+        }
+
+        // Bouton Reconnecter ou Résoudre
+        let setupBtn = `
+          <button onclick="openBrowser('${acc.id}')" class="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-bold border border-slate-700/60 flex items-center gap-1.5 transition-colors">
+            <i data-lucide="key" class="w-3.5 h-3.5"></i>
+            <span>${acc.is_connected ? 'Reconnecter' : 'Connecter'}</span>
+          </button>
+        `;
+        if (acc.is_reconnect_needed) {
+          setupBtn = `
+            <button onclick="openBrowser('${acc.id}')" class="px-3 py-2 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-amber-950 flex items-center gap-1.5 transition-all glow-gold">
+              <i data-lucide="key" class="w-3.5 h-3.5"></i>
+              <span>🔑 Reconnecter</span>
+            </button>
+          `;
+        } else if (acc.is_captcha_blocked) {
+          setupBtn = `
+            <button onclick="resolveCaptcha('${acc.id}')" class="px-3 py-2 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-950 flex items-center gap-1.5 transition-all animate-pulse">
+              <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i>
+              <span>🛠️ Résoudre</span>
+            </button>
+          `;
+        }
+
+        cardEl.innerHTML = `
+          <!-- Header Card -->
+          <div class="flex items-center justify-between gap-3 mb-4">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <button onclick="toggleMainAccount('${acc.id}')" title="${acc.is_main ? 'Chef de Guilde' : 'Définir comme Chef de Guilde'}" class="text-base transition-transform active:scale-125">
+                ${acc.is_main ? '⭐' : '☆'}
+              </button>
+              <div class="truncate">
+                <div class="flex items-center gap-2">
+                  <span class="font-extrabold text-sm text-white truncate">${acc.name}</span>
+                  <button onclick="renameAccountPrompt('${acc.id}', '${acc.name}')" title="Renommer" class="text-slate-500 hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <i data-lucide="edit-3" class="w-3 h-3"></i>
+                  </button>
+                </div>
+                <div class="text-[10px] text-slate-500 capitalize flex items-center gap-1">
+                  <span>${acc.browser_type}</span>
+                  <span>•</span>
+                  <span>${acc.cards_count || 0} cartes</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Status Pill -->
+            <span class="text-[10px] font-bold px-2.5 py-1 rounded-full ${statusBadgeClass} flex-shrink-0">
+              ${acc.status_text}
+            </span>
+          </div>
+
+          <!-- Donut Timer & Stock Display -->
+          <div class="flex items-center justify-between gap-4 py-3 border-y border-slate-800/60 my-2">
+            <!-- SVG Donut -->
+            <div class="relative w-24 h-24 flex items-center justify-center flex-shrink-0">
+              <svg class="w-full h-full -rotate-90" viewBox="0 0 90 90">
+                <!-- Track -->
+                <circle cx="45" cy="45" r="${radius}" fill="none" stroke="#1e293b" stroke-width="7" />
+                <!-- Arc -->
+                <circle cx="45" cy="45" r="${radius}" fill="none" stroke="url(#accentGrad-${idx})" stroke-width="7" stroke-dasharray="${circ}" stroke-dashoffset="${offset}" stroke-linecap="round" class="transition-all duration-1000 ease-linear" />
+                <defs>
+                  <linearGradient id="accentGrad-${idx}" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#38bdf8" />
+                    <stop offset="100%" stop-color="#818cf8" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <div class="absolute inset-0 flex flex-col items-center justify-center text-center">
+                <span class="font-mono font-extrabold text-sm text-white">${formatTime(leftSec)}</span>
+                <span class="text-[9px] text-slate-400 font-semibold mt-0.5">${leftSec === 0 ? 'PRÊT !' : 'ATTENTE'}</span>
+              </div>
+            </div>
+
+            <!-- Right Info -->
+            <div class="flex-1 space-y-2">
+              <div class="text-xs">
+                <div class="text-slate-400 text-[10px] uppercase font-semibold">Stock de paquets</div>
+                <div class="font-bold text-sm text-amber-300 font-mono mt-0.5">
+                  ${acc.stock_data ? acc.stock_data : 'Stock prêt'}
+                </div>
+              </div>
+              <div class="text-[11px] text-slate-400 line-clamp-2">
+                ${acc.sub_lbl || 'Prêt pour le tirage'}
+              </div>
+            </div>
+          </div>
+
+          <!-- Pulled Cards Carousel -->
+          <div class="space-y-1.5 my-3">
+            <div class="flex items-center justify-between text-[10px] text-slate-400 uppercase font-semibold">
+              <span>Dernières Cartes</span>
+              <span>${recent.length} / 5</span>
+            </div>
+            <div class="flex items-center gap-2 overflow-x-auto pb-1">
+              ${cardsHtml}
+            </div>
+          </div>
+
+          <!-- Bottom Action Buttons -->
+          <div class="flex items-center gap-2 pt-3 border-t border-slate-800/60">
+            ${setupBtn}
+
+            <button onclick="claimSingle('${acc.id}')" class="flex-1 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-lg shadow-brand-950 flex items-center justify-center gap-1.5">
+              <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+              <span>Tirer</span>
+            </button>
+
+            <button onclick="refreshSingle('${acc.id}')" title="Actualiser" class="p-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white rounded-xl border border-slate-800 transition-colors">
+              <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        `;
+
+        grid.appendChild(cardEl);
+      });
+    }
+
+    // Rendu des logs
+    function renderLogs(logs) {
+      const container = document.getElementById('logContainer');
+      const shouldScroll = document.getElementById('chkAutoScroll').checked;
+      
+      container.innerHTML = '';
+      const filter = state.log_filter;
+
+      logs.forEach(log => {
+        if (filter !== 'all' && log.level !== filter) return;
+
+        let colorClass = "text-slate-300";
+        let icon = "›";
+        if (log.level === 'success') { colorClass = "text-emerald-400"; icon = "✓"; }
+        else if (log.level === 'warning') { colorClass = "text-amber-400"; icon = "⚠"; }
+        else if (log.level === 'error') { colorClass = "text-rose-400"; icon = "✕"; }
+        else if (log.level === 'stealth') { colorClass = "text-purple-400"; icon = "🛡️"; }
+
+        const line = document.createElement('div');
+        line.className = "flex items-start gap-2 text-[11px] leading-relaxed";
+        line.innerHTML = `
+          <span class="text-slate-600 select-none">[${log.time || '--:--:--'}]</span>
+          <span class="font-bold select-none">${icon}</span>
+          <span class="${colorClass}">${log.message}</span>
+        `;
+        container.appendChild(line);
+      });
+
+      if (shouldScroll) {
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+
+    // ─── ACTIONS API ─────────────────────────────────────────────────────────
+
+    async function claimAll() {
+      playChime(659.25);
+      await fetch('/api/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: 'all' })
+      });
+    }
+
+    async function claimSingle(accountId) {
+      playChime(659.25);
+      await fetch('/api/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: accountId })
+      });
+    }
+
+    async function refreshSingle(accountId) {
+      await fetch('/api/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: accountId })
+      });
+    }
+
+    async function togglePause() {
+      await fetch('/api/toggle_pause', { method: 'POST' });
+      fetchState();
+    }
+
+    async function syncFriends() {
+      await fetch('/api/sync_friends', { method: 'POST' });
+    }
+
+    async function openBrowser(accountId) {
+      await fetch('/api/open_browser', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: accountId, start_url: 'https://wiki-masters.com/pulls' })
+      });
+    }
+
+    async function resolveCaptcha(accountId) {
+      await fetch('/api/open_browser', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: accountId, start_url: 'https://wiki-masters.com/pulls' })
+      });
+    }
+
+    async function toggleMainAccount(accountId) {
+      await fetch('/api/set_main', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: accountId })
+      });
+      fetchState();
+    }
+
+    async function renameAccountPrompt(accountId, currentName) {
+      const newName = prompt("Nouveau nom pour ce compte :", currentName);
+      if (newName && newName.trim() && newName !== currentName) {
+        await fetch('/api/rename', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_id: accountId, new_name: newName.trim() })
+        });
+        fetchState();
+      }
+    }
+
+    async function submitAddAccount() {
+      const name = document.getElementById('newAccountName').value.trim();
+      const bType = document.getElementById('newAccountBrowser').value;
+      if (!name) return alert("Veuillez entrer un nom");
+      await fetch('/api/add_account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name, browser_type: bType })
+      });
+      closeModal('modalAddAccount');
+      fetchState();
+    }
+
+    // Modal Top 10
+    async function loadTop10() {
+      const res = await fetch('/api/best_cards');
+      if (!res.ok) return;
+      const data = await res.json();
+      
+      const tabs = document.getElementById('top10Tabs');
+      tabs.innerHTML = '';
+      const accounts = Object.keys(data);
+      if (!accounts.length) return;
+
+      accounts.forEach((accId, idx) => {
+        const btn = document.createElement('button');
+        btn.className = `px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${idx === 0 ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`;
+        btn.innerText = accId;
+        btn.onclick = () => {
+          Array.from(tabs.children).forEach(c => c.className = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-slate-300 hover:bg-slate-700');
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-600 text-white';
+          renderTop10Cards(data[accId] || []);
+        };
+        tabs.appendChild(btn);
+      });
+
+      renderTop10Cards(data[accounts[0]] || []);
+    }
+
+    function renderTop10Cards(cards) {
+      const grid = document.getElementById('top10Grid');
+      grid.innerHTML = '';
+      if (!cards.length) {
+        grid.innerHTML = '<div class="col-span-full text-center text-xs text-slate-500 py-8">Aucune carte enregistrée dans le Top 10.</div>';
+        return;
+      }
+      cards.forEach(c => {
+        const r = c.rarity || 'C';
+        const rCfg = RARITY_COLORS[r] || RARITY_COLORS['C'];
+        const title = c.wikipedia_title || c.title || 'Carte';
+        const img = c.image_url || '';
+        const el = document.createElement('div');
+        el.className = `p-3 rounded-2xl border ${rCfg.border} bg-slate-900/60 card-shine flex flex-col items-center text-center space-y-2 cursor-pointer`;
+        el.onclick = () => openLightbox(c);
+        el.innerHTML = `
+          <div class="relative w-24 h-32 rounded-xl overflow-hidden bg-slate-950 border border-white/10 shadow-lg">
+            ${img ? `<img src="${img}" class="w-full h-full object-cover">` : `<div class="w-full h-full flex items-center justify-center text-xs font-bold">${r}</div>`}
+          </div>
+          <span class="text-[9px] font-mono font-bold px-2 py-0.5 rounded-full ${rCfg.badge}">${rCfg.label}</span>
+          <div class="text-xs font-bold text-white line-clamp-2">${title}</div>
+        `;
+        grid.appendChild(el);
+      });
+    }
+
+    // Dons & Transferts
+    async function executeBulkDonation() {
+      const target = document.getElementById('transferTargetSelect').value;
+      const rarities = [];
+      if (document.getElementById('chkC').checked) rarities.push('C');
+      if (document.getElementById('chkPC').checked) rarities.push('PC');
+      if (document.getElementById('chkR').checked) rarities.push('R');
+      if (!target) return alert("Sélectionnez un compte cible");
+
+      await fetch('/api/transfer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'centralize', target_name: target, rarities: rarities })
+      });
+      alert(`Centralisation lancée vers ${target} en arrière-plan ! Suivez l'avancement dans le journal.`);
+      closeModal('modalTransfer');
+    }
+
+    // Modal Guilde
+    async function syncGuild() {
+      await fetch('/api/guild_sync', { method: 'POST' });
+    }
+
+    // Modal Discord
+    async function loadDiscordSettings() {
+      const res = await fetch('/api/discord');
+      if (res.ok) {
+        const d = await res.json();
+        document.getElementById('discordWebhookUrl').value = d.webhook_url || '';
+        document.getElementById('discordRareOnly').checked = d.notify_rare_only !== false;
+        document.getElementById('discordNotifyErrors').checked = d.notify_errors !== false;
+      }
+    }
+
+    async function saveDiscordSettings() {
+      const url = document.getElementById('discordWebhookUrl').value.trim();
+      const rareOnly = document.getElementById('discordRareOnly').checked;
+      const errors = document.getElementById('discordNotifyErrors').checked;
+      await fetch('/api/discord', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webhook_url: url, notify_rare_only: rareOnly, notify_errors: errors })
+      });
+      alert("Paramètres Discord enregistrés !");
+      closeModal('modalDiscord');
+    }
+
+    async function testDiscordWebhook() {
+      const res = await fetch('/api/discord_test', { method: 'POST' });
+      const data = await res.json();
+      alert(data.message || (data.success ? "Test réussi !" : "Échec du test"));
+    }
+
+    // Modals Helpers
+    function openModal(id) {
+      document.getElementById(id).classList.remove('hidden');
+      if (id === 'modalTop10') loadTop10();
+      if (id === 'modalDiscord') loadDiscordSettings();
+      if (id === 'modalTransfer') {
+        const sel = document.getElementById('transferTargetSelect');
+        sel.innerHTML = '';
+        state.accounts.forEach(a => {
+          const opt = document.createElement('option');
+          opt.value = a.name;
+          opt.innerText = `${a.name} ${a.is_main ? '⭐ (Principal)' : ''}`;
+          if (a.is_main) opt.selected = true;
+          sel.appendChild(opt);
+        });
+      }
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.add('hidden');
+    }
+
+    function openLightbox(c) {
+      const r = c.rarity || 'C';
+      const rCfg = RARITY_COLORS[r] || RARITY_COLORS['C'];
+      document.getElementById('lightboxImg').src = c.image_url || '';
+      document.getElementById('lightboxTitle').innerText = c.wikipedia_title || c.title || 'Carte WikiMasters';
+      document.getElementById('lightboxSubtitle').innerText = `${rCfg.label} • Rareté ${r}`;
+      const badge = document.getElementById('lightboxRarityBadge');
+      badge.className = `inline-block px-3 py-1 rounded-full text-xs font-bold font-mono ${rCfg.badge}`;
+      badge.innerText = rCfg.label;
+      openModal('modalLightbox');
+    }
+
+    function setLogFilter(filter) {
+      state.log_filter = filter;
+      ['all', 'success', 'warning', 'error'].forEach(f => {
+        const btn = document.getElementById(`filter${f.charAt(0).toUpperCase() + f.slice(1)}`);
+        if (btn) {
+          btn.className = (f === filter) ? 'px-2.5 py-1 rounded-md bg-brand-600 text-white font-medium' : 'px-2.5 py-1 rounded-md hover:bg-slate-800 text-slate-400 font-medium';
+        }
+      });
+      renderLogs(state.logs);
+    }
+
+    function copyLogs() {
+      const text = state.logs.map(l => `[${l.time}] ${l.message}`).join('\n');
+      navigator.clipboard.writeText(text);
+      alert("Journal copié dans le presse-papier !");
+    }
+
+    function clearLogs() {
+      state.logs = [];
+      document.getElementById('logContainer').innerHTML = '';
+    }
+
+    function toggleSound() {
+      state.sound_enabled = !state.sound_enabled;
+      document.getElementById('soundIcon').setAttribute('data-lucide', state.sound_enabled ? 'volume-2' : 'volume-x');
+      lucide.createIcons();
+    }
+
+    // ─── INITIALISATION & SSE ────────────────────────────────────────────────
+    window.addEventListener('DOMContentLoaded', () => {
+      fetchState();
+      setInterval(fetchState, 1500);
+
+      // Décompte local chaque seconde pour une fluidité absolue
+      setInterval(() => {
+        if (!state.is_running) return;
+        state.accounts.forEach(acc => {
+          if (acc.remaining_seconds > 0) acc.remaining_seconds--;
+        });
+        renderAccountCards();
+      }, 1000);
+
+      // Connexion SSE
+      try {
+        const evtSource = new EventSource("/api/events");
+        evtSource.addEventListener("log", (e) => {
+          try {
+            const data = JSON.parse(e.data).data;
+            state.logs.push(data);
+            if (state.logs.length > 200) state.logs.shift();
+            renderLogs(state.logs);
+            if (data.level === 'success') playChime(783.99);
+          } catch(err) {}
+        });
+      } catch(err) {
+        console.warn("SSE indisponible, bascule sur polling");
+      }
+    });
+  </script>
+</body>
+</html>
