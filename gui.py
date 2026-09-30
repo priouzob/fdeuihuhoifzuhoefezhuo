@@ -4284,7 +4284,7 @@ class MainWindow(QMainWindow):
                             self.claim_workers[aid].terminate()
                         except Exception:
                             pass
-                        del self.claim_workers[aid]
+                        self.claim_workers.pop(aid, None)
                     card.set_status("⚠️  Récupération", "#451a03", "#fde68a")
                     card.set_countdown(30)
             else:
@@ -4371,8 +4371,7 @@ class MainWindow(QMainWindow):
             card.is_claiming = False
             card._claim_start_ts = 0
         engine.unmark_account_busy(account_id)
-        if account_id in self.claim_workers:
-            del self.claim_workers[account_id]
+        self.claim_workers.pop(account_id, None)
         if not self.claim_workers:
             self.log("✓  Tous les tirages en cours sont terminés.", "success")
             self.update_global_stats()
