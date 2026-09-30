@@ -240,115 +240,270 @@ def human_click(page, locator):
         except Exception:
             pass
 
-def check_and_handle_turnstile(page):
+def is_turnstile_solved(page):
+    """Vérifie si le défi Cloudflare Turnstile a été validé avec succès."""
+    try:
+        res = page.evaluate("""() => {
+            // 1. Vérifier si un champ de réponse Turnstile contient un token valide
+            const inputs = document.querySelectorAll('input[name*="cf-turnstile-response"], input[name*="cf_turnstile_response"]');
+            for (const inp of inputs) {
+                if (inp.value && inp.value.length > 10) return true;
+            }
+            // 2. Vérifier si aucun iframe Turnstile n'est présent
+            const iframes = Array.from(document.querySelectorAll('iframe[src*="cloudflare"], iframe[src*="turnstile"]'));
+            if (iframes.length === 0) return true;
+            // 3. Vérifier la classe de succès dans le conteneur Turnstile
+            const success = document.querySelector('.cf-turnstile.success, div[class*="success"]');
+            if (success) return true;
+            return false;
+        }""")
+        return bool(res)
+    except Exception:
+        return False
+
+def is_bot_challenge_active(page):
     """
-    Vérifie si une pop-up ou un widget Cloudflare Turnstile ('Je ne suis pas un robot')
-    est apparu sur la page et effectue une interaction humaine discrète pour le valider.
+    Vérifie si une pop-up de vérification ou un défi Cloudflare Turnstile non résolu
+    bloque actuellement l'écran ou l'accès aux boutons de tirage.
     """
     try:
-        cf_frames = page.locator("iframe[src*='challenges.cloudflare.com'], iframe[src*='turnstile']").all()
-        if cf_frames:
-            for frame_loc in cf_frames:
-                frame = frame_loc.content_frame()
-                if frame:
-                    checkbox = frame.locator("input[type='checkbox'], span.mark, div[class*='cb-c']").first
-                    if checkbox.count() > 0 and checkbox.is_visible():
-                        human_delay(0.5, 1.2)
-                        checkbox.click(delay=random.randint(80, 150))
-                        human_delay(1.5, 2.5)
-                        return True
+        # 1. Vérifier les textes caractéristiques des pop-ups de vérification
+        modal_texts = [
+            "text='Vérification rapide'",
+            "text='Vérification de sécurité'",
+            "text='Vérification requise'",
+            "text='Vérification anti-bot'",
+            "text='Vérification'",
+            "text='pas de script ni bot'",
+            "text='confirme que tu utilises'",
+            "text='Je ne suis pas un robot'",
+            "text='Prouvez que vous êtes un humain'",
+            "text='Vérifier que vous êtes un humain'",
+            "text='Confirmation requise'",
+        ]
+        for sel in modal_texts:
+            try:
+                loc = page.locator(sel).first
+                if loc.count() > 0 and loc.is_visible():
+                    return True
+            except Exception:
+                pass
+
+        # 2. Vérifier si une modale ou dialogue contient un Turnstile ou un avertissement bot
+        dialog_selectors = [
+            "[role='dialog']:has(iframe[src*='challenges.cloudflare.com'])",
+            "[role='dialog']:has(iframe[src*='turnstile'])",
+            "[role='dialog']:has(div.cf-turnstile)",
+            "[role='dialog']:has-text('robot')",
+            "[role='dialog']:has-text('bot')",
+            "[role='dialog']:has-text('Vérification')",
+            "div[class*='modal']:has(iframe[src*='challenges.cloudflare.com'])",
+            "div[class*='modal']:has(div.cf-turnstile)",
+            "div[class*='modal']:has-text('robot')",
+            "div[class*='modal']:has-text('Vérification')",
+        ]
+        for sel in dialog_selectors:
+            try:
+                loc = page.locator(sel).first
+                if loc.count() > 0 and loc.is_visible():
+                    return True
+            except Exception:
+                pass
+
+        # 3. Widget Cloudflare Turnstile visible et non résolu
+        cf_frames = page.locator("iframe[src*='challenges.cloudflare.com'], iframe[src*='turnstile'], div.cf-turnstile")
+        if cf_frames.count() > 0:
+            if not is_turnstile_solved(page):
+                first_cf = cf_frames.first
+                if first_cf.is_visible():
+                    return True
+    except Exception:
+        pass
+    return False
+
+def check_and_handle_turnstile(page):
+    """
+    Vérifie si un widget Cloudflare Turnstile ('Je ne suis pas un robot') est présent
+    et effectue une interaction humaine discrète pour le valider.
+    Retourne True si le défi est résolu.
+    """
+    try:
+        cf_frames = page.locator("iframe[src*='challenges.cloudflare.com'], iframe[src*='turnstile'], iframe[title*='Cloudflare'], iframe[title*='Turnstile'], div.cf-turnstile iframe").all()
+        if not cf_frames:
+            return False
+
+        for frame_loc in cf_frames:
+            if not frame_loc.is_visible():
+                continue
+
+            frame = frame_loc.content_frame()
+            clicked = False
+
+            if frame:
+                # 1. Tenter de cliquer sur les sélecteurs internes connus de Turnstile
+                for target_sel in [
+                    "label.ctp-checkbox-label",
+                    "div.ctp-checkbox-container",
+                    "span.mark",
+                    "div[class*='cb-c']",
+                    "div#checkbox",
+                    "input[type='checkbox']",
+                    "#challenge-stage",
+                    "body"
+                ]:
+                    try:
+                        target = frame.locator(target_sel).first
+                        if target.count() > 0:
+                            human_delay(0.3, 0.7)
+                            target.click(force=True, delay=random.randint(60, 120))
+                            clicked = True
+                            break
+                    except Exception:
+                        pass
+
+            # 2. Si le frame est inaccessible ou l'élément masqué, cliquer sur l'iframe aux coordonnées de la checkbox
+            if not clicked:
+                try:
+                    human_delay(0.3, 0.7)
+                    # La case à cocher Turnstile se situe invariablement à x=30, y=30
+                    frame_loc.click(position={"x": 30, "y": 30}, delay=random.randint(70, 140))
+                    clicked = True
+                except Exception:
+                    pass
+
+            if clicked:
+                human_delay(1.5, 2.5)
+                if is_turnstile_solved(page):
+                    return True
+
+        # Vérification finale après délai de validation Cloudflare
+        time.sleep(1.0)
+        return is_turnstile_solved(page)
+
     except Exception:
         pass
     return False
 
 def check_and_handle_verification_modal(page, status_callback=None):
     """
-    Détecte et résout automatiquement la pop-up de vérification interne de WikiMasters :
-    'Vérification rapide'
-    'Pour continuer à ouvrir des paquets, confirme que tu utilises l'application manuellement (pas de script ni bot).'
-    [X] Je ne suis pas un robot
-    [ Continuer ]
+    Détecte et résout automatiquement toute pop-up de vérification interne de WikiMasters
+    (Vérification rapide, case 'Je ne suis pas un robot', Turnstile interne, bouton Continuer).
     """
     try:
-        # 1. Vérifier si des éléments de la modale sont présents
-        modal_selectors = [
-            "text='Vérification rapide'",
-            "text='pas de script ni bot'",
-            "text='confirme que tu utilises'",
-            "text='Je ne suis pas un robot'"
-        ]
-        is_modal_visible = False
-        for sel in modal_selectors:
-            try:
-                loc = page.locator(sel).first
-                if loc.count() > 0 and loc.is_visible():
-                    is_modal_visible = True
-                    break
-            except Exception:
-                pass
-
-        if not is_modal_visible:
+        if not is_bot_challenge_active(page):
             return False
 
-        if status_callback:
+        safe_notify_cb = status_callback if callable(status_callback) else None
+        if safe_notify_cb:
             try:
-                status_callback("🛡️ Pop-up 'Vérification rapide' détectée ! Validation automatique...", "stealth")
+                safe_notify_cb("🛡️ Pop-up de vérification anti-bot détectée ! Validation automatique...", "stealth")
             except Exception:
                 pass
 
-        human_delay(0.6, 1.4)
+        human_delay(0.5, 1.0)
 
-        # 2. Cocher la case 'Je ne suis pas un robot'
-        checkbox_clicked = False
-        # Essai 1 : input[type='checkbox']
-        cb = page.locator("input[type='checkbox']").first
-        if cb.count() > 0 and cb.is_visible():
-            human_click(page, cb)
-            checkbox_clicked = True
-        
-        # Essai 2 : button/div avec role='checkbox' (ex: Radix UI / Tailwind)
-        if not checkbox_clicked:
-            cb_role = page.locator("[role='checkbox']").first
-            if cb_role.count() > 0 and cb_role.is_visible():
-                human_click(page, cb_role)
-                checkbox_clicked = True
-
-        # Essai 3 : label ou span contenant 'Je ne suis pas un robot'
-        if not checkbox_clicked:
-            cb_label = page.locator("label:has-text('robot'), div:has-text('Je ne suis pas un robot')").last
-            if cb_label.count() > 0 and cb_label.is_visible():
-                human_click(page, cb_label)
-                checkbox_clicked = True
-
-        # Essai 4 : Texte direct
-        if not checkbox_clicked:
-            cb_text = page.locator("text='Je ne suis pas un robot'").first
-            if cb_text.count() > 0 and cb_text.is_visible():
-                human_click(page, cb_text)
-                checkbox_clicked = True
-
-        human_delay(0.8, 1.8)
-
-        # 3. Cliquer sur le bouton 'Continuer' de la modale
-        continuer_btn = page.locator("button:has-text('Continuer'):not([disabled])").first
-        if continuer_btn.count() == 0 or not continuer_btn.is_visible():
-            continuer_btn = page.locator("button:has-text('Continuer')").first
-
-        if continuer_btn.count() > 0 and continuer_btn.is_visible():
-            human_delay(0.4, 0.9)
-            human_click(page, continuer_btn)
-            human_delay(1.5, 2.5)
-
-        # 4. Vérifier si un Turnstile secondaire est apparu
+        # 1. Si un widget Cloudflare Turnstile est présent dans la modale, tenter de le résoudre d'abord
         check_and_handle_turnstile(page)
 
-        if status_callback:
+        # 2. Cocher la case 'Je ne suis pas un robot' (supporte Radix UI, Tailwind, sr-only, custom svg)
+        checkbox_clicked = False
+        cb_selectors = [
+            "button[role='checkbox']",
+            "[role='checkbox']",
+            "label:has-text('robot')",
+            "label:has-text('humain')",
+            "label:has-text('bot')",
+            "div:has-text('Je ne suis pas un robot')",
+            "span:has-text('Je ne suis pas un robot')",
+            "input[type='checkbox']",
+        ]
+        for cb_sel in cb_selectors:
             try:
-                status_callback("✅ 'Vérification rapide' validée avec succès !", "success")
+                cb_loc = page.locator(cb_sel).first
+                if cb_loc.count() > 0:
+                    if cb_loc.is_visible():
+                        human_click(page, cb_loc)
+                        checkbox_clicked = True
+                        break
+                    else:
+                        cb_loc.click(force=True)
+                        checkbox_clicked = True
+                        break
             except Exception:
                 pass
 
-        return True
+        # 3. Fallback Javascript pour cocher la case si les locators Playwright ont échoué
+        if not checkbox_clicked:
+            try:
+                clicked_js = page.evaluate("""() => {
+                    const cb = document.querySelector('button[role="checkbox"], input[type="checkbox"]');
+                    if (cb) { cb.click(); return true; }
+                    const all = Array.from(document.querySelectorAll('label, div, span'));
+                    const robotEl = all.find(el => (el.innerText || '').toLowerCase().includes('robot'));
+                    if (robotEl) { robotEl.click(); return true; }
+                    return false;
+                }""")
+                if clicked_js:
+                    checkbox_clicked = True
+            except Exception:
+                pass
+
+        human_delay(0.6, 1.2)
+
+        # 4. Attendre et cliquer sur le bouton de confirmation / continuation de la modale
+        btn_selectors = [
+            "button:has-text('Continuer'):not([disabled])",
+            "button:has-text('Valider'):not([disabled])",
+            "button:has-text('Confirmer'):not([disabled])",
+            "button:has-text('OK'):not([disabled])",
+            "button:has-text('J\\'ai compris'):not([disabled])",
+            "button:has-text('Continuer')",
+            "button:has-text('Valider')",
+            "button:has-text('Confirmer')",
+        ]
+
+        btn_to_click = None
+        wait_start = time.time()
+        while time.time() - wait_start < 3.5:
+            for b_sel in btn_selectors:
+                try:
+                    b_loc = page.locator(b_sel).first
+                    if b_loc.count() > 0 and b_loc.is_visible() and b_loc.is_enabled():
+                        btn_to_click = b_loc
+                        break
+                except Exception:
+                    pass
+            if btn_to_click:
+                break
+            time.sleep(0.3)
+
+        if btn_to_click:
+            human_delay(0.3, 0.7)
+            human_click(page, btn_to_click)
+        else:
+            page.evaluate("""() => {
+                const btns = Array.from(document.querySelectorAll('button'));
+                const b = btns.find(el => {
+                    const t = (el.innerText || '').toLowerCase();
+                    return (t.includes('continuer') || t.includes('valider') || t.includes('confirmer') || t.includes('compris')) && !el.disabled;
+                });
+                if (b) b.click();
+            }""")
+
+        human_delay(1.2, 2.0)
+
+        # 5. Vérifier si un Turnstile secondaire est apparu suite au clic
+        check_and_handle_turnstile(page)
+
+        # 6. Vérifier si la modale a disparu
+        modal_dismissed = not is_bot_challenge_active(page)
+        if modal_dismissed and safe_notify_cb:
+            try:
+                safe_notify_cb("✅ Pop-up de vérification validée avec succès !", "success")
+            except Exception:
+                pass
+
+        return modal_dismissed
 
     except Exception:
         return False

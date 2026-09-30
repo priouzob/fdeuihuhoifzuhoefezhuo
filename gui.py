@@ -4436,7 +4436,7 @@ class MainWindow(QMainWindow):
         self.log(f"↻  Actualisation : {title}…", "info")
         self.trigger_claim_cycle([account_id])
 
-    def start_account_setup(self, account_id, start_url="https://wiki-masters.com/login", browser_type=None):
+    def start_account_setup(self, account_id, start_url="https://wiki-masters.com/pulls", browser_type=None):
         if self.setup_worker and self.setup_worker.isRunning():
             self.log("Fermeture de la configuration précédente…", "warning")
             engine.close_active_setup()
@@ -4452,7 +4452,12 @@ class MainWindow(QMainWindow):
         name = acc.get("name", account_id)
         b_type = (browser_type or acc.get("browser_type", "chrome")).lower()
         b_name = engine.SUPPORTED_BROWSERS.get(b_type, {}).get("name", "Navigateur")
-        action_name = "création / inscription" if "/signup" in start_url else "connexion"
+        if "/signup" in start_url:
+            action_name = "création / inscription"
+        elif card and getattr(card, "is_captcha_blocked", False):
+            action_name = "résolution du défi anti-bot"
+        else:
+            action_name = "connexion"
         self.log(f"🔑  Ouverture de {b_name} pour {name} ({action_name})…", "info")
         self.setup_worker = SetupWorker(account_id, start_url=start_url, browser_type=b_type)
         self.setup_worker.log_signal.connect(self.log)

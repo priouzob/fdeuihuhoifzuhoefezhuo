@@ -25,7 +25,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from stealth import apply_stealth, human_delay, human_click, check_and_handle_turnstile, check_and_handle_verification_modal, enforce_single_page
+from stealth import apply_stealth, human_delay, human_click, check_and_handle_turnstile, check_and_handle_verification_modal, enforce_single_page, is_bot_challenge_active, is_turnstile_solved
 
 BASE_DIR = Path(__file__).parent.resolve()
 CONFIG_FILE = BASE_DIR / "config.json"
@@ -1911,38 +1911,36 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                 except Exception:
                     pass
 
-                # Résoudre immédiatement la modale interne 'Vérification rapide' si affichée
-                check_and_handle_verification_modal(page, status_callback)
-
-                # Vérifier si un défi Cloudflare Turnstile est présent
-                cf_frames = page.locator("iframe[src*='challenges.cloudflare.com'], iframe[src*='turnstile'], div.cf-turnstile")
-                if cf_frames.count() > 0:
+                # Détection et résolution automatique de toute pop-up de vérification ou défi Turnstile
+                if is_bot_challenge_active(page):
                     safe_notify(status_callback, f"[{name}] 🛡️ Vérification anti-bot détectée. Résolution discrète...", "stealth")
-                    solved = check_and_handle_turnstile(page)
+                    solved = check_and_handle_verification_modal(page, status_callback) or check_and_handle_turnstile(page)
+                    if not solved:
+                        time.sleep(1.5)
+                        solved = check_and_handle_verification_modal(page, status_callback) or check_and_handle_turnstile(page)
+
                     if solved:
                         safe_notify(status_callback, f"[{name}] 🛡️ Vérification validée discrètement avec succès.", "success")
                         time.sleep(1.0)
                     else:
-                        time.sleep(1.5)
-                        has_content = page.locator("button:has-text('Ouvrir'), div:has-text('paquets disponibles')").count() > 0
-                        if not has_content:
-                            context.close()
-                            kill_browser_processes(account_id)
-                            cfg = load_config()
-                            if cfg.get("discord_notify_errors", True):
-                                send_discord_notification(
-                                    f"⚠️ Défi Anti-Bot Détecté — {name}",
-                                    f"Un défi bloquant a été détecté sur **{name}**.\nOuvrez l'application et cliquez sur **'🛠️ Résoudre'**.",
-                                    color=0xef4444
-                                )
-                            return {
-                                "status": "captcha_detected",
-                                "browser": name,
-                                "browser_key": account_id,
-                                "seconds_left": 300,
-                                "timer_str": "05:00",
-                                "details": "⚠️ Défi anti-bot bloquant détecté. Les autres comptes continuent normalement. Cliquez sur '🛠️ Résoudre'."
-                            }
+                        context.close()
+                        kill_browser_processes(account_id)
+                        cfg = load_config()
+                        if cfg.get("discord_notify_errors", True):
+                            send_discord_notification(
+                                f"⚠️ Défi Anti-Bot Détecté — {name}",
+                                f"Un défi bloquant a été détecté sur **{name}**.\nOuvrez l'application et cliquez sur **'🛠️ Résoudre'**.",
+                                color=0xef4444
+                            )
+                        return {
+                            "status": "captcha_detected",
+                            "browser": name,
+                            "browser_key": account_id,
+                            "seconds_left": 300,
+                            "timer_str": "05:00",
+                            "stock": f"{extract_stock_count(page)} / 10",
+                            "details": "⚠️ Pop-up anti-bot bloquant l'accès aux paquets. Cliquez sur '🛠️ Résoudre'."
+                        }
 
                 # Vérification résiliente de la session et prévention des faux positifs
                 if "/login" in page.url or "/signup" in page.url:
@@ -1998,9 +1996,29 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                         is_btn_ready = (ouvrir_btn.count() > 0 and ouvrir_btn.is_visible() and ouvrir_btn.is_enabled())
 
                         if not is_btn_ready and stock > 0:
-                            time.sleep(0.8)
-                            ouvrir_btn = page.locator("button:has-text('Ouvrir'):not([disabled])").first
-                            is_btn_ready = (ouvrir_btn.count() > 0 and ouvrir_btn.is_visible() and ouvrir_btn.is_enabled())
+                            # Vérifier si une pop-up anti-bot bloque le bouton Ouvrir
+                            if is_bot_challenge_active(page):
+                                safe_notify(status_callback, f"[{name}] 🛡️ Pop-up de vérification détectée. Résolution...", "stealth")
+                                if check_and_handle_verification_modal(page, status_callback) or check_and_handle_turnstile(page):
+                                    time.sleep(1.0)
+                                    ouvrir_btn = page.locator("button:has-text('Ouvrir'):not([disabled])").first
+                                    is_btn_ready = (ouvrir_btn.count() > 0 and ouvrir_btn.is_visible() and ouvrir_btn.is_enabled())
+                                else:
+                                    context.close()
+                                    kill_browser_processes(account_id)
+                                    return {
+                                        "status": "captcha_detected",
+                                        "browser": name,
+                                        "browser_key": account_id,
+                                        "seconds_left": 300,
+                                        "timer_str": "05:00",
+                                        "stock": f"{stock} / 10",
+                                        "details": "⚠️ Pop-up anti-bot bloquant l'accès aux paquets. Cliquez sur '🛠️ Résoudre'."
+                                    }
+                            else:
+                                time.sleep(0.8)
+                                ouvrir_btn = page.locator("button:has-text('Ouvrir'):not([disabled])").first
+                                is_btn_ready = (ouvrir_btn.count() > 0 and ouvrir_btn.is_visible() and ouvrir_btn.is_enabled())
 
                         if not is_btn_ready:
                             break
@@ -2018,14 +2036,16 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                         pack_opened = False
                         open_wait_start = time.time()
                         while time.time() - open_wait_start < 20.0:
-                            # Détecter et résoudre immédiatement une éventuelle pop-up de vérification interne
-                            if check_and_handle_verification_modal(page, status_callback):
-                                time.sleep(0.5)
-                                o_retry = page.locator("button:has-text('Ouvrir'):not([disabled])").first
-                                if o_retry.count() > 0 and o_retry.is_visible() and o_retry.is_enabled():
-                                    o_retry.click()
+                            # 1. Détecter et résoudre immédiatement une éventuelle pop-up apparue suite au clic Ouvrir
+                            if is_bot_challenge_active(page):
+                                if check_and_handle_verification_modal(page, status_callback) or check_and_handle_turnstile(page):
+                                    time.sleep(0.6)
+                                    o_retry = page.locator("button:has-text('Ouvrir'):not([disabled])").first
+                                    if o_retry.count() > 0 and o_retry.is_visible() and o_retry.is_enabled():
+                                        o_retry.click()
+                                        open_wait_start = time.time()
 
-                            # Vérifier si les cartes ou la flèche de navigation sont apparues
+                            # 2. Vérifier si les cartes ou la flèche de navigation sont apparues
                             has_pack_ui = (
                                 page.locator("button.w-12.h-12:not([disabled])").count() > 0 or
                                 page.locator("button:has-text('Continuer')").count() > 0 or
@@ -2040,7 +2060,7 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                                     pack_opened = True
                                     break
 
-                            # Détecter si le serveur affiche un toast d'erreur / surcharge
+                            # 3. Détecter si le serveur affiche un toast d'erreur / surcharge
                             err_toast = page.locator("div[role='status'], div[class*='toast'], div[class*='alert']").first
                             if err_toast.count() > 0 and err_toast.is_visible():
                                 txt_err = err_toast.inner_text().strip()
@@ -2053,6 +2073,22 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                                         open_wait_start = time.time()
 
                             time.sleep(0.1)
+
+                        if not pack_opened:
+                            if is_bot_challenge_active(page):
+                                context.close()
+                                kill_browser_processes(account_id)
+                                return {
+                                    "status": "captcha_detected",
+                                    "browser": name,
+                                    "browser_key": account_id,
+                                    "seconds_left": 300,
+                                    "timer_str": "05:00",
+                                    "stock": f"{stock} / 10",
+                                    "details": "⚠️ Pop-up anti-bot apparue lors de l'ouverture du paquet. Cliquez sur '🛠️ Résoudre'."
+                                }
+                            safe_notify(status_callback, f"[{name}] ⚠️ Le paquet n'a pas pu être ouvert après 20s d'attente.", "warning")
+                            break
 
                         total_packs_opened += 1
 
