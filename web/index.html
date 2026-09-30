@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WikiMasters Fleet — Dashboard Web Local</title>
+  <title>WikiMasters Fleet — Dashboard Web Ultime</title>
   
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -18,19 +18,38 @@
       theme: {
         extend: {
           fontFamily: {
-            sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
-            mono: ['"JetBrains Mono"', 'monospace'],
+            sans: ['"Plus Jakarta Sans"', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
           },
           colors: {
             brand: {
               50: '#f0f9ff',
               100: '#e0f2fe',
+              200: '#bae6fd',
+              300: '#7dd3fc',
               400: '#38bdf8',
               500: '#0ea5e9',
               600: '#0284c7',
               700: '#0369a1',
+              800: '#075985',
               900: '#0c4a6e',
+              950: '#082f49',
+            },
+            surface: {
+              base: '#050814',
+              card: '#0a0f20',
+              elevated: '#0f172e',
+              highlight: '#162244',
+              border: '#1a2744',
             }
+          },
+          boxShadow: {
+            'glow-cyan': '0 0 35px -5px rgba(56, 189, 248, 0.35)',
+            'glow-indigo': '0 0 35px -5px rgba(99, 102, 241, 0.35)',
+            'glow-emerald': '0 0 35px -5px rgba(16, 185, 129, 0.35)',
+            'glow-amber': '0 0 35px -5px rgba(245, 158, 11, 0.35)',
+            'glow-rose': '0 0 35px -5px rgba(244, 63, 94, 0.35)',
+            'glow-purple': '0 0 35px -5px rgba(168, 85, 247, 0.35)',
           }
         }
       }
@@ -41,22 +60,30 @@
   <script src="https://unpkg.com/lucide@latest"></script>
 
   <style>
+    /* ─── Ambient Cosmic Background ─── */
     body {
-      background-color: #030712;
+      background-color: #050814;
       background-image: 
-        radial-gradient(at 0% 0%, rgba(14, 165, 233, 0.08) 0px, transparent 50%),
-        radial-gradient(at 100% 0%, rgba(168, 85, 247, 0.08) 0px, transparent 50%),
-        radial-gradient(at 50% 100%, rgba(16, 185, 129, 0.05) 0px, transparent 50%);
+        radial-gradient(at 0% 0%, rgba(14, 165, 233, 0.12) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(168, 85, 247, 0.12) 0px, transparent 50%),
+        radial-gradient(at 50% 100%, rgba(16, 185, 129, 0.08) 0px, transparent 50%),
+        radial-gradient(at 50% 50%, rgba(99, 102, 241, 0.05) 0px, transparent 65%);
       background-attachment: fixed;
+      color: #f1f5f9;
     }
-    
-    /* Scrollbar */
+
+    /* ─── Scrollbars ─── */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 999px; }
     ::-webkit-scrollbar-thumb:hover { background: #334155; }
 
-    /* Holographic card shine effect */
+    /* ─── Number Typography ─── */
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ─── Holographic Card Shine Effect ─── */
     .card-shine {
       position: relative;
       overflow: hidden;
@@ -64,124 +91,208 @@
     .card-shine::after {
       content: '';
       position: absolute;
-      top: -50%;
-      left: -50%;
-      width: 200%;
-      height: 200%;
+      top: -60%;
+      left: -60%;
+      width: 220%;
+      height: 220%;
       background: linear-gradient(
         60deg,
         transparent 30%,
-        rgba(255, 255, 255, 0.1) 45%,
-        rgba(255, 255, 255, 0.25) 50%,
-        rgba(255, 255, 255, 0.1) 55%,
+        rgba(255, 255, 255, 0.08) 45%,
+        rgba(255, 255, 255, 0.28) 50%,
+        rgba(255, 255, 255, 0.08) 55%,
         transparent 70%
       );
       transform: rotate(35deg) translateY(-100%);
-      transition: transform 0.75s ease-in-out;
+      transition: transform 0.85s cubic-bezier(0.16, 1, 0.3, 1);
       pointer-events: none;
     }
     .card-shine:hover::after {
       transform: rotate(35deg) translateY(100%);
     }
 
-    /* Glow utilities */
-    .glow-cyan { box-shadow: 0 0 25px -5px rgba(56, 189, 248, 0.35); }
-    .glow-gold { box-shadow: 0 0 25px -5px rgba(245, 158, 11, 0.4); }
-    .glow-purple { box-shadow: 0 0 25px -5px rgba(168, 85, 247, 0.35); }
-    .glow-green { box-shadow: 0 0 25px -5px rgba(52, 211, 153, 0.35); }
+    /* ─── Glassmorphism Panels ─── */
+    .glass-panel {
+      background: rgba(10, 16, 34, 0.75);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .glass-card {
+      background: linear-gradient(180deg, rgba(14, 22, 45, 0.8) 0%, rgba(9, 13, 28, 0.85) 100%);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+    }
+    .glass-card:hover {
+      border-color: rgba(56, 189, 248, 0.35);
+      box-shadow: 0 16px 40px -10px rgba(14, 165, 233, 0.18), 0 0 0 1px rgba(56, 189, 248, 0.25);
+    }
+
+    /* ─── Pulse Beacon ─── */
+    @keyframes beacon-ping {
+      0% { transform: scale(1); opacity: 0.8; }
+      50% { transform: scale(1.6); opacity: 0; }
+      100% { transform: scale(1); opacity: 0; }
+    }
+    .beacon-active {
+      position: relative;
+    }
+    .beacon-active::before {
+      content: '';
+      position: absolute;
+      inset: -2px;
+      border-radius: 9999px;
+      background: currentColor;
+      animation: beacon-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+      z-index: 0;
+    }
+
+    /* ─── Toast Notifications Animation ─── */
+    @keyframes toast-in {
+      from { transform: translateX(110%) scale(0.9); opacity: 0; }
+      to { transform: translateX(0) scale(1); opacity: 1; }
+    }
+    @keyframes toast-out {
+      from { transform: translateX(0) scale(1); opacity: 1; }
+      to { transform: translateX(110%) scale(0.9); opacity: 0; }
+    }
+    .toast-enter {
+      animation: toast-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .toast-exit {
+      animation: toast-out 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    /* ─── Modal Animation ─── */
+    @keyframes modal-scale-in {
+      from { opacity: 0; transform: scale(0.94) translateY(8px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .modal-content-anim {
+      animation: modal-scale-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
   </style>
 </head>
 
-<body class="text-slate-100 min-h-screen flex flex-col font-sans selection:bg-brand-500 selection:text-white">
+<body class="text-slate-100 min-h-screen flex flex-col font-sans selection:bg-brand-500 selection:text-white antialiased">
+
+  <!-- ─── FLOATING TOAST CONTAINER ──────────────────────────────────────── -->
+  <div id="toastContainer" class="fixed top-5 right-5 z-[9999] flex flex-col gap-3 pointer-events-none w-full max-w-sm"></div>
 
   <!-- ─── TOP NAVBAR ──────────────────────────────────────────────────────── -->
-  <header class="sticky top-0 z-40 backdrop-blur-xl bg-slate-950/80 border-b border-slate-800/80 px-4 lg:px-8 py-3.5 transition-all">
+  <header class="sticky top-0 z-40 glass-panel border-b border-white/5 px-4 lg:px-8 py-3 transition-all duration-300">
     <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
       
       <!-- Brand & Status -->
       <div class="flex items-center gap-3.5">
-        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-brand-500/20 ring-1 ring-white/20">
-          <span class="text-xl">🎴</span>
+        <div class="relative group cursor-pointer" onclick="fetchState()">
+          <div class="w-11 h-11 rounded-2xl bg-gradient-to-tr from-brand-600 via-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-brand-500/25 ring-1 ring-white/20 transition-transform duration-300 group-hover:scale-105 active:scale-95">
+            <span class="text-2xl filter drop-shadow">🎴</span>
+          </div>
+          <span class="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 ring-2 ring-slate-950 flex items-center justify-center">
+            <span class="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+          </span>
         </div>
+
         <div>
           <div class="flex items-center gap-2">
-            <h1 class="font-extrabold text-base tracking-tight text-white">WikiMasters Fleet</h1>
-            <span id="versionBadge" class="text-[10px] font-mono font-bold bg-slate-800 text-brand-400 px-2 py-0.5 rounded-full border border-brand-500/30">v2.6.8</span>
+            <h1 class="font-extrabold text-base tracking-tight text-white flex items-center gap-1.5">
+              <span>WikiMasters</span>
+              <span class="bg-gradient-to-r from-brand-400 to-indigo-400 bg-clip-text text-transparent">Fleet Pro</span>
+            </h1>
+            <span id="versionBadge" class="text-[10px] font-mono font-bold bg-slate-900/90 text-brand-300 px-2 py-0.5 rounded-full border border-brand-500/30 shadow-sm">v2.7.1</span>
           </div>
           <div class="flex items-center gap-2 mt-0.5 text-xs text-slate-400">
-            <span class="inline-flex items-center gap-1.5 text-emerald-400 font-medium">
-              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              Synchronisé en Direct
+            <span class="inline-flex items-center gap-1.5 text-emerald-400 font-semibold text-[11px]">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              Synchronisé SSE en Direct
             </span>
-            <span class="text-slate-600">•</span>
-            <span id="headerSyncText">Google Chrome Multi-Comptes</span>
+            <span class="text-slate-700">•</span>
+            <span id="headerSyncText" class="text-slate-400 text-[11px]">Moteur Multi-Navigateurs Isolé</span>
           </div>
         </div>
       </div>
 
-      <!-- Fleet Stats Banner -->
-      <div class="hidden md:flex items-center gap-4 bg-slate-900/60 border border-slate-800/80 rounded-xl px-4 py-2 text-xs">
-        <div class="flex items-center gap-2">
-          <span class="text-amber-400 text-sm">📦</span>
+      <!-- Fleet Stats Banner (KPIs) -->
+      <div class="hidden lg:flex items-center gap-5 bg-slate-950/60 border border-white/5 rounded-2xl px-5 py-2 text-xs backdrop-blur-md shadow-inner">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 text-sm">
+            📦
+          </div>
           <div>
-            <div class="text-[10px] text-slate-400 uppercase font-semibold">Total Paquets</div>
-            <div id="statTotalPacks" class="font-bold text-slate-100 font-mono text-sm">0</div>
+            <div class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Total Paquets</div>
+            <div id="statTotalPacks" class="font-bold text-slate-100 font-mono text-sm tabular-nums">0</div>
           </div>
         </div>
-        <div class="w-px h-6 bg-slate-800"></div>
-        <div class="flex items-center gap-2">
-          <span class="text-emerald-400 text-sm">🃏</span>
+
+        <div class="w-px h-7 bg-white/5"></div>
+
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 text-sm">
+            🃏
+          </div>
           <div>
-            <div class="text-[10px] text-slate-400 uppercase font-semibold">Collection</div>
-            <div id="statTotalCards" class="font-bold text-slate-100 font-mono text-sm">0 cartes</div>
+            <div class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Collection Globale</div>
+            <div id="statTotalCards" class="font-bold text-slate-100 font-mono text-sm tabular-nums">0 cartes</div>
           </div>
         </div>
-        <div class="w-px h-6 bg-slate-800"></div>
-        <div class="flex items-center gap-2">
-          <span class="text-brand-400 text-sm">⏱️</span>
+
+        <div class="w-px h-7 bg-white/5"></div>
+
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-brand-500/10 border border-brand-500/20 flex items-center justify-center text-brand-400 text-sm">
+            ⏱️
+          </div>
           <div>
-            <div class="text-[10px] text-slate-400 uppercase font-semibold">Prochain Tirage</div>
-            <div id="statNextPull" class="font-bold text-brand-300 font-mono text-sm">--:--</div>
+            <div class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Prochain Tirage</div>
+            <div id="statNextPull" class="font-bold text-brand-300 font-mono text-sm tabular-nums">--:--</div>
           </div>
         </div>
       </div>
 
-      <!-- Action Buttons -->
-      <div class="flex items-center gap-2">
-        <button id="btnClaimAll" onclick="claimAll()" class="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-brand-600/30 transition-all active:scale-95 border border-brand-400/30">
-          <i data-lucide="zap" class="w-4 h-4"></i>
+      <!-- Action Buttons Bar -->
+      <div class="flex items-center gap-2 flex-wrap">
+        <!-- Claim All Button -->
+        <button id="btnClaimAll" onclick="claimAll()" class="relative group px-4 py-2.5 bg-gradient-to-r from-brand-600 via-sky-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-brand-600/30 transition-all duration-200 active:scale-95 border border-brand-300/30 flex items-center gap-2">
+          <i data-lucide="zap" class="w-4 h-4 text-brand-200 group-hover:scale-110 transition-transform"></i>
           <span>Tirer Tout</span>
+          <span class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping"></span>
         </button>
 
-        <button id="btnPause" onclick="togglePause()" class="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-semibold border border-slate-700/60 transition-all">
-          <i id="pauseIcon" data-lucide="pause" class="w-4 h-4"></i>
+        <!-- Pause / Resume Toggle -->
+        <button id="btnPause" onclick="togglePause()" class="flex items-center gap-2 px-3.5 py-2.5 bg-slate-900/90 hover:bg-slate-800 text-slate-200 rounded-xl text-xs font-semibold border border-white/10 transition-all active:scale-95">
+          <i id="pauseIcon" data-lucide="pause" class="w-4 h-4 text-slate-400"></i>
           <span id="pauseText">Pause</span>
         </button>
 
-        <!-- Dropdown Modals Navigation -->
-        <div class="flex items-center gap-1.5 bg-slate-900/80 p-1 rounded-xl border border-slate-800">
-          <button onclick="openModal('modalTransfer')" title="Dons & Transferts" class="p-2 hover:bg-emerald-950/60 hover:text-emerald-400 rounded-lg text-slate-400 transition-colors">
+        <!-- Navigation Hub Icons -->
+        <div class="flex items-center gap-1 bg-slate-950/70 p-1 rounded-xl border border-white/5">
+          <button onclick="openModal('modalTransfer')" title="Dons & Transferts Groupés" class="p-2 hover:bg-emerald-950/60 text-slate-400 hover:text-emerald-400 rounded-lg transition-colors">
             <i data-lucide="gift" class="w-4 h-4"></i>
           </button>
-          <button onclick="openModal('modalTop10')" title="Top 10 des Cartes" class="p-2 hover:bg-purple-950/60 hover:text-purple-400 rounded-lg text-slate-400 transition-colors">
+          <button onclick="openModal('modalTop10')" title="Top 10 des Cartes de la Flotte" class="p-2 hover:bg-purple-950/60 text-slate-400 hover:text-purple-400 rounded-lg transition-colors">
             <i data-lucide="trophy" class="w-4 h-4"></i>
           </button>
-          <button onclick="syncFriends()" title="Interconnecter les amis" class="p-2 hover:bg-indigo-950/60 hover:text-indigo-400 rounded-lg text-slate-400 transition-colors">
+          <button onclick="openModal('modalFleetStats')" title="Statistiques & Historique des Tirages" class="p-2 hover:bg-sky-950/60 text-slate-400 hover:text-sky-400 rounded-lg transition-colors">
+            <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
+          </button>
+          <button onclick="syncFriends()" title="Interconnecter la flotte d'amis" class="p-2 hover:bg-indigo-950/60 text-slate-400 hover:text-indigo-400 rounded-lg transition-colors">
             <i data-lucide="users" class="w-4 h-4"></i>
           </button>
-          <button onclick="openModal('modalGuild')" title="Guilde" class="p-2 hover:bg-amber-950/60 hover:text-amber-400 rounded-lg text-slate-400 transition-colors">
+          <button onclick="openModal('modalGuild')" title="Guilde & Échanges" class="p-2 hover:bg-amber-950/60 text-slate-400 hover:text-amber-400 rounded-lg transition-colors">
             <i data-lucide="shield" class="w-4 h-4"></i>
           </button>
-          <button onclick="openModal('modalDiscord')" title="Discord Webhook" class="p-2 hover:bg-indigo-950/60 hover:text-indigo-400 rounded-lg text-slate-400 transition-colors">
+          <button onclick="openModal('modalDiscord')" title="Configuration Discord Webhook" class="p-2 hover:bg-indigo-950/60 text-slate-400 hover:text-indigo-300 rounded-lg transition-colors">
             <i data-lucide="message-square" class="w-4 h-4"></i>
           </button>
-          <button onclick="openModal('modalAddAccount')" title="Ajouter un compte" class="p-2 hover:bg-brand-950/60 hover:text-brand-400 rounded-lg text-slate-400 transition-colors">
+          <button onclick="openModal('modalAddAccount')" title="Ajouter un compte" class="p-2 hover:bg-brand-950/60 text-slate-400 hover:text-brand-400 rounded-lg transition-colors">
             <i data-lucide="user-plus" class="w-4 h-4"></i>
           </button>
         </div>
 
-        <!-- Sound toggle -->
-        <button id="btnSound" onclick="toggleSound()" title="Sons d'alerte" class="p-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white rounded-xl border border-slate-800 transition-all">
+        <!-- Audio Sound Toggle -->
+        <button id="btnSound" onclick="toggleSound()" title="Activer / Désactiver les effets sonores" class="p-2.5 bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-white rounded-xl border border-white/5 transition-all">
           <i id="soundIcon" data-lucide="volume-2" class="w-4 h-4"></i>
         </button>
       </div>
@@ -192,84 +303,115 @@
   <!-- ─── MAIN CONTENT ────────────────────────────────────────────────────── -->
   <main class="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-8 space-y-8">
     
-    <!-- Account Cards Grid -->
+    <!-- Account Cards Header Bar -->
     <section>
-      <div class="flex items-center justify-between mb-4">
-        <div class="flex items-center gap-2">
-          <h2 class="text-sm font-bold uppercase tracking-wider text-slate-400">Flotte de Comptes</h2>
-          <span id="accountCountBadge" class="bg-slate-800 text-slate-300 font-mono text-xs px-2 py-0.5 rounded-full font-bold">0</span>
+      <div class="flex flex-wrap items-center justify-between gap-4 mb-5">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-brand-400 animate-pulse"></span>
+            <h2 class="text-sm font-extrabold uppercase tracking-wider text-slate-300">Flotte Opérationnelle</h2>
+          </div>
+          <span id="accountCountBadge" class="bg-brand-500/10 text-brand-300 border border-brand-500/20 font-mono text-xs px-2.5 py-0.5 rounded-full font-bold">0 comptes</span>
         </div>
-        <div class="text-xs text-slate-500">
-          Moteur Google Chrome persistant et isolé
+
+        <div class="flex items-center gap-3 text-xs text-slate-400">
+          <span class="flex items-center gap-1.5 bg-slate-900/60 px-3 py-1.5 rounded-xl border border-white/5">
+            <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-400"></i>
+            <span>Mode Furtif & Anti-Détection Actif</span>
+          </span>
         </div>
       </div>
 
+      <!-- Account Cards Grid -->
       <div id="cardsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <!-- Rendu dynamique des cartes de comptes ici -->
       </div>
     </section>
 
     <!-- ─── LIVE ACTIVITY CONSOLE ─────────────────────────────────────────── -->
-    <section class="bg-slate-950/70 border border-slate-800/80 rounded-2xl overflow-hidden shadow-2xl backdrop-blur-xl">
-      <div class="flex items-center justify-between px-5 py-3.5 border-b border-slate-800/70 bg-slate-900/40">
+    <section class="glass-panel rounded-3xl overflow-hidden shadow-2xl border border-white/5">
+      <!-- Console Top Bar -->
+      <div class="flex flex-wrap items-center justify-between px-5 py-3.5 border-b border-white/5 bg-slate-950/50 gap-3">
         <div class="flex items-center gap-3">
           <div class="flex items-center gap-2">
             <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
-            <span class="font-bold text-xs uppercase tracking-wider text-slate-300">Journal d'Activité en Direct</span>
+            <span class="font-extrabold text-xs uppercase tracking-wider text-slate-200">Journal d'Activité en Direct</span>
           </div>
-          <!-- Filter tabs -->
-          <div class="hidden sm:flex items-center gap-1 bg-slate-900/90 p-0.5 rounded-lg border border-slate-800 text-[11px]">
-            <button onclick="setLogFilter('all')" id="filterAll" class="px-2.5 py-1 rounded-md bg-brand-600 text-white font-medium">Tous</button>
-            <button onclick="setLogFilter('success')" id="filterSuccess" class="px-2.5 py-1 rounded-md hover:bg-slate-800 text-slate-400 font-medium">Succès</button>
-            <button onclick="setLogFilter('warning')" id="filterWarning" class="px-2.5 py-1 rounded-md hover:bg-slate-800 text-slate-400 font-medium">Alertes</button>
-            <button onclick="setLogFilter('error')" id="filterError" class="px-2.5 py-1 rounded-md hover:bg-slate-800 text-slate-400 font-medium">Erreurs</button>
+
+          <!-- Log Filter Badges -->
+          <div class="hidden sm:flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-white/5 text-[11px]">
+            <button onclick="setLogFilter('all')" id="filterAll" class="px-2.5 py-1 rounded-lg bg-brand-600 text-white font-bold transition-colors">Tous</button>
+            <button onclick="setLogFilter('success')" id="filterSuccess" class="px-2.5 py-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-emerald-400 font-semibold transition-colors">✓ Succès</button>
+            <button onclick="setLogFilter('warning')" id="filterWarning" class="px-2.5 py-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-amber-400 font-semibold transition-colors">⚠ Alertes</button>
+            <button onclick="setLogFilter('error')" id="filterError" class="px-2.5 py-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-rose-400 font-semibold transition-colors">✕ Erreurs</button>
           </div>
         </div>
 
-        <div class="flex items-center gap-2">
-          <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer select-none">
+        <!-- Search & Control Buttons -->
+        <div class="flex items-center gap-2 flex-wrap">
+          <div class="relative">
+            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2"></i>
+            <input type="text" id="logSearchInput" oninput="filterLogsRealtime()" placeholder="Filtrer les messages…" class="pl-8 pr-3 py-1.5 bg-slate-900/80 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 w-36 sm:w-48 transition-all">
+          </div>
+
+          <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer select-none px-2 py-1 bg-slate-900/50 rounded-xl border border-white/5">
             <input type="checkbox" id="chkAutoScroll" checked class="rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-0">
-            <span>Défilement auto</span>
+            <span>Défilement</span>
           </label>
-          <button onclick="copyLogs()" title="Copier le journal" class="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg border border-slate-800 text-xs transition-colors">
+
+          <button onclick="copyLogs()" title="Copier l'intégralité du journal" class="p-2 bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl border border-white/5 text-xs transition-colors">
             <i data-lucide="copy" class="w-3.5 h-3.5"></i>
           </button>
-          <button onclick="clearLogs()" title="Effacer" class="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-400 rounded-lg border border-slate-800 text-xs transition-colors">
+
+          <button onclick="clearLogs()" title="Effacer la console" class="p-2 bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-rose-400 rounded-xl border border-white/5 text-xs transition-colors">
             <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
           </button>
         </div>
       </div>
 
-      <!-- Logs content box -->
-      <div id="logContainer" class="h-48 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed space-y-1">
+      <!-- Logs Content Area -->
+      <div id="logContainer" class="h-56 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed space-y-1 bg-slate-950/70 select-text">
         <!-- Logs insérés dynamiquement -->
       </div>
     </section>
 
   </main>
 
+  <!-- ─── FOOTER ──────────────────────────────────────────────────────────── -->
+  <footer class="mt-auto border-t border-white/5 py-4 text-center text-xs text-slate-500">
+    <div class="max-w-7xl mx-auto px-4 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+        <span>WikiMasters Auto-Claim Engine v2.7.1</span>
+      </div>
+      <div>
+        Design & Moteur Synchronisé • Paire Desktop & Web
+      </div>
+    </div>
+  </footer>
+
   <!-- ─── MODALS ──────────────────────────────────────────────────────────── -->
 
   <!-- Top 10 Modal -->
-  <div id="modalTop10" class="fixed inset-0 z-50 hidden bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
-    <div class="bg-slate-950 border border-slate-800 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
-      <div class="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-900/50">
+  <div id="modalTop10" class="fixed inset-0 z-50 hidden bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="modal-content-anim glass-panel rounded-3xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden border border-white/10">
+      <div class="flex items-center justify-between p-5 border-b border-white/10 bg-slate-950/60">
         <div class="flex items-center gap-3">
-          <div class="p-2 rounded-xl bg-purple-950/60 text-purple-400 border border-purple-800/40">
-            <i data-lucide="trophy" class="w-5 h-5"></i>
+          <div class="p-2.5 rounded-2xl bg-purple-950/60 text-purple-400 border border-purple-800/40 shadow-glow-purple">
+            <i data-lucide="trophy" class="w-6 h-6"></i>
           </div>
           <div>
             <h3 class="font-extrabold text-base text-white">Classement des 10 Meilleures Cartes</h3>
-            <p class="text-xs text-slate-400">Cartes les plus prestigieuses automatiquement conservées par compte</p>
+            <p class="text-xs text-slate-400">Cartes de rareté supérieure automatiquement sauvegardées et répertoriées</p>
           </div>
         </div>
-        <button onclick="closeModal('modalTop10')" class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors">
+        <button onclick="closeModal('modalTop10')" class="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
       <!-- Account Filter Tabs -->
-      <div id="top10Tabs" class="flex gap-2 p-3 border-b border-slate-800 bg-slate-900/30 overflow-x-auto">
+      <div id="top10Tabs" class="flex gap-2 p-3 border-b border-white/5 bg-slate-950/40 overflow-x-auto">
         <!-- Tabs ajoutés dynamiquement -->
       </div>
 
@@ -280,55 +422,129 @@
     </div>
   </div>
 
-  <!-- Dons & Transferts Modal -->
-  <div id="modalTransfer" class="fixed inset-0 z-50 hidden bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
-    <div class="bg-slate-950 border border-slate-800 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
-      <div class="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-900/50">
+  <!-- Statistiques de Flotte & Historique Modal (NEW) -->
+  <div id="modalFleetStats" class="fixed inset-0 z-50 hidden bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="modal-content-anim glass-panel rounded-3xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden border border-white/10">
+      <div class="flex items-center justify-between p-5 border-b border-white/10 bg-slate-950/60">
         <div class="flex items-center gap-3">
-          <div class="p-2 rounded-xl bg-emerald-950/60 text-emerald-400 border border-emerald-800/40">
-            <i data-lucide="gift" class="w-5 h-5"></i>
+          <div class="p-2.5 rounded-2xl bg-sky-950/60 text-sky-400 border border-sky-800/40 shadow-glow-cyan">
+            <i data-lucide="bar-chart-3" class="w-6 h-6"></i>
           </div>
           <div>
-            <h3 class="font-extrabold text-base text-white">Dons & Transferts Groupés</h3>
-            <p class="text-xs text-slate-400">Échangez vos cartes par lots de 100 ou centralisez vers votre compte principal</p>
+            <h3 class="font-extrabold text-base text-white">Statistiques de Flotte & Historique</h3>
+            <p class="text-xs text-slate-400">Suivi des ouvertures, ventilation des raretés et 50 derniers tirages</p>
           </div>
         </div>
-        <button onclick="closeModal('modalTransfer')" class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors">
+        <button onclick="closeModal('modalFleetStats')" class="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-6 space-y-6">
+        <!-- KPI summary banner -->
+        <div id="fleetStatsKpi" class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <!-- Dynamique -->
+        </div>
+
+        <!-- Rarity Distribution Bars -->
+        <div class="bg-slate-950/60 border border-white/5 rounded-2xl p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <h4 class="font-extrabold text-sm text-white">Répartition Globale des Raretés</h4>
+            <span class="text-xs text-slate-400">Cartes répertoriées</span>
+          </div>
+          <div id="rarityDistributionBars" class="space-y-2.5">
+            <!-- Dynamique -->
+          </div>
+        </div>
+
+        <!-- History Table -->
+        <div class="bg-slate-950/60 border border-white/5 rounded-2xl p-5 space-y-3">
+          <h4 class="font-extrabold text-sm text-white">50 Derniers Tirages de la Flotte</h4>
+          <div class="overflow-x-auto max-h-64 overflow-y-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="text-[10px] uppercase font-bold text-slate-500 border-b border-white/5 sticky top-0 bg-slate-950">
+                <tr>
+                  <th class="py-2 px-3">Heure</th>
+                  <th class="py-2 px-3">Compte</th>
+                  <th class="py-2 px-3">Paquets</th>
+                  <th class="py-2 px-3">Cartes obtenues</th>
+                  <th class="py-2 px-3">Bilan Raretés</th>
+                </tr>
+              </thead>
+              <tbody id="fleetHistoryBody" class="divide-y divide-white/5 font-mono text-[11px]">
+                <!-- Dynamique -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dons & Transferts Modal -->
+  <div id="modalTransfer" class="fixed inset-0 z-50 hidden bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="modal-content-anim glass-panel rounded-3xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden border border-white/10">
+      <div class="flex items-center justify-between p-5 border-b border-white/10 bg-slate-950/60">
+        <div class="flex items-center gap-3">
+          <div class="p-2.5 rounded-2xl bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 shadow-glow-emerald">
+            <i data-lucide="gift" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 class="font-extrabold text-base text-white">Dons & Transferts Automatiques</h3>
+            <p class="text-xs text-slate-400">Centralisation en 1 clic de toutes les cartes secondaires vers votre compte principal</p>
+          </div>
+        </div>
+        <button onclick="closeModal('modalTransfer')" class="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
       <div class="p-6 space-y-6 overflow-y-auto">
-        <!-- Mode Centraliser -->
-        <div class="bg-slate-900/60 border border-emerald-500/20 rounded-xl p-5 space-y-4">
-          <div class="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+        <div class="bg-gradient-to-br from-emerald-950/30 to-teal-950/20 border border-emerald-500/20 rounded-2xl p-5 space-y-4">
+          <div class="flex items-center gap-2 text-emerald-400 font-extrabold text-sm">
             <i data-lucide="sparkles" class="w-4 h-4"></i>
-            <span>Centralisation Automatique (1-Clic)</span>
+            <span>Centralisation Groupée (Recommandé)</span>
           </div>
           <p class="text-xs text-slate-300 leading-relaxed">
-            Transfère automatiquement toutes les cartes disponibles de TOUS vos comptes secondaires vers le compte sélectionné ci-dessous.
+            Transfère automatiquement par lots de 100 toutes les cartes disponibles de <strong>TOUS vos comptes secondaires</strong> directement vers le compte cible spécifié.
           </p>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+          
+          <div class="space-y-4 pt-2">
             <div>
-              <label class="block text-xs font-semibold text-slate-300 mb-1.5">Compte Destinataire :</label>
-              <select id="transferTargetSelect" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:border-brand-500 focus:outline-none">
+              <label class="block text-xs font-bold text-slate-200 mb-1.5">Compte Destinataire (Récepteur) :</label>
+              <select id="transferTargetSelect" class="w-full bg-slate-950 border border-slate-700/80 rounded-xl p-3 text-xs text-white focus:border-emerald-500 focus:outline-none font-semibold">
                 <!-- Rempli dynamiquement -->
               </select>
             </div>
+
             <div>
-              <label class="block text-xs font-semibold text-slate-300 mb-1.5">Raretés à transférer :</label>
-              <div class="flex items-center gap-2 pt-2 text-xs">
-                <label class="flex items-center gap-1.5"><input type="checkbox" id="chkC" checked class="rounded text-brand-500"> Communes (C)</label>
-                <label class="flex items-center gap-1.5"><input type="checkbox" id="chkPC" checked class="rounded text-brand-500"> Peu Communes (PC)</label>
-                <label class="flex items-center gap-1.5"><input type="checkbox" id="chkR" class="rounded text-brand-500"> Rares (R)</label>
+              <label class="block text-xs font-bold text-slate-200 mb-2">Raretés de cartes à transférer :</label>
+              <div class="grid grid-cols-3 gap-3">
+                <label class="flex items-center gap-2 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 cursor-pointer hover:border-slate-700">
+                  <input type="checkbox" id="chkC" checked class="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0">
+                  <span class="text-xs font-semibold text-slate-300">Communes (C)</span>
+                </label>
+                <label class="flex items-center gap-2 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 cursor-pointer hover:border-slate-700">
+                  <input type="checkbox" id="chkPC" checked class="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0">
+                  <span class="text-xs font-semibold text-slate-300">Peu Communes</span>
+                </label>
+                <label class="flex items-center gap-2 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 cursor-pointer hover:border-slate-700">
+                  <input type="checkbox" id="chkR" class="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0">
+                  <span class="text-xs font-semibold text-slate-300">Rares (R)</span>
+                </label>
               </div>
             </div>
+
+            <label class="flex items-center gap-2 p-2 rounded-xl text-xs text-slate-400 cursor-pointer">
+              <input type="checkbox" id="chkKeepDuplicates" class="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0">
+              <span>Transférer uniquement les doublons (garder au moins 1 exemplaire par compte)</span>
+            </label>
           </div>
 
-          <div class="pt-2">
-            <button onclick="executeBulkDonation()" class="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-emerald-950 transition-all flex items-center justify-center gap-2">
+          <div class="pt-3">
+            <button onclick="executeBulkDonation()" class="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold rounded-xl text-xs shadow-lg shadow-emerald-950 transition-all flex items-center justify-center gap-2 active:scale-95 border border-emerald-400/20">
               <i data-lucide="send" class="w-4 h-4"></i>
-              <span>Lancer la Centralisation vers le compte cible</span>
+              <span>Lancer le Transfert Groupé</span>
             </button>
           </div>
         </div>
@@ -337,79 +553,83 @@
   </div>
 
   <!-- Guilde Modal -->
-  <div id="modalGuild" class="fixed inset-0 z-50 hidden bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
-    <div class="bg-slate-950 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
-      <div class="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-900/50">
+  <div id="modalGuild" class="fixed inset-0 z-50 hidden bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="modal-content-anim glass-panel rounded-3xl w-full max-w-xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden border border-white/10">
+      <div class="flex items-center justify-between p-5 border-b border-white/10 bg-slate-950/60">
         <div class="flex items-center gap-3">
-          <div class="p-2 rounded-xl bg-amber-950/60 text-amber-400 border border-amber-800/40">
-            <i data-lucide="shield" class="w-5 h-5"></i>
+          <div class="p-2.5 rounded-2xl bg-amber-950/60 text-amber-400 border border-amber-800/40 shadow-glow-amber">
+            <i data-lucide="shield" class="w-6 h-6"></i>
           </div>
           <div>
             <h3 class="font-extrabold text-base text-white">Gestion de Guilde</h3>
-            <p class="text-xs text-slate-400">Intégration automatique de tous vos comptes dans votre guilde</p>
+            <p class="text-xs text-slate-400">Intégration et alignement de tous vos comptes au sein de votre guilde</p>
           </div>
         </div>
-        <button onclick="closeModal('modalGuild')" class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors">
+        <button onclick="closeModal('modalGuild')" class="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
       <div class="p-6 space-y-4 overflow-y-auto">
-        <div class="bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+        <div class="bg-slate-950/60 border border-white/10 rounded-2xl p-4 flex items-center justify-between gap-4">
           <div>
-            <div class="text-xs text-slate-400 font-semibold uppercase">Guilde Principale</div>
+            <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Statut Guilde Flotte</div>
             <div id="guildName" class="text-base font-extrabold text-amber-300">Synchronisation…</div>
           </div>
-          <button onclick="syncGuild()" class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-all">
-            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-            <span>Intégrer tous les comptes</span>
+          <button onclick="syncGuild()" class="px-4 py-2.5 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-extrabold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-amber-950 transition-all active:scale-95">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+            <span>Intégrer les comptes</span>
           </button>
         </div>
-        <div id="guildMembersList" class="space-y-2 text-xs text-slate-300">
-          <!-- Membres insérés ici -->
+
+        <div class="space-y-2">
+          <div class="text-xs font-bold uppercase tracking-wider text-slate-400">Règles d'échange de guilde :</div>
+          <p class="text-xs text-slate-300 leading-relaxed bg-slate-950/40 p-3 rounded-xl border border-white/5">
+            Même pour les comptes non ajoutés en amis individuels, faire partie de la même guilde permet d'effectuer des demandes d'échange instantanées directes depuis le menu de Guilde WikiMasters.
+          </p>
         </div>
       </div>
     </div>
   </div>
 
   <!-- Discord Modal -->
-  <div id="modalDiscord" class="fixed inset-0 z-50 hidden bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
-    <div class="bg-slate-950 border border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
-      <div class="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-900/50">
+  <div id="modalDiscord" class="fixed inset-0 z-50 hidden bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="modal-content-anim glass-panel rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden border border-white/10">
+      <div class="flex items-center justify-between p-5 border-b border-white/10 bg-slate-950/60">
         <div class="flex items-center gap-3">
-          <div class="p-2 rounded-xl bg-indigo-950/60 text-indigo-400 border border-indigo-800/40">
-            <i data-lucide="message-square" class="w-5 h-5"></i>
+          <div class="p-2.5 rounded-2xl bg-indigo-950/60 text-indigo-400 border border-indigo-800/40 shadow-glow-indigo">
+            <i data-lucide="message-square" class="w-6 h-6"></i>
           </div>
           <div>
             <h3 class="font-extrabold text-base text-white">Alertes Discord Webhook</h3>
-            <p class="text-xs text-slate-400">Recevez des notifications pour les cartes rares et alertes</p>
+            <p class="text-xs text-slate-400">Recevez en temps réel les notifications de cartes rares et alertes</p>
           </div>
         </div>
-        <button onclick="closeModal('modalDiscord')" class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors">
+        <button onclick="closeModal('modalDiscord')" class="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
       <div class="p-6 space-y-4">
         <div>
-          <label class="block text-xs font-semibold text-slate-300 mb-1.5">URL du Webhook Discord :</label>
-          <input type="text" id="discordWebhookUrl" placeholder="https://discord.com/api/webhooks/..." class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-white focus:border-brand-500 focus:outline-none font-mono">
+          <label class="block text-xs font-bold text-slate-200 mb-1.5">URL du Webhook Discord :</label>
+          <input type="text" id="discordWebhookUrl" placeholder="https://discord.com/api/webhooks/..." class="w-full bg-slate-950 border border-slate-700/80 rounded-xl p-3 text-xs text-white focus:border-indigo-500 focus:outline-none font-mono">
         </div>
         <div class="space-y-2 pt-1 text-xs text-slate-300">
-          <label class="flex items-center gap-2">
-            <input type="checkbox" id="discordRareOnly" checked class="rounded text-brand-500">
-            <span>Notifier uniquement pour les cartes rares (SR, UR, Légendaires)</span>
+          <label class="flex items-center gap-2 p-2 rounded-xl hover:bg-slate-900/50 cursor-pointer">
+            <input type="checkbox" id="discordRareOnly" checked class="rounded bg-slate-900 border-slate-700 text-indigo-500 focus:ring-0">
+            <span>Notifier uniquement les cartes rares (SR, UR, Légendaires)</span>
           </label>
-          <label class="flex items-center gap-2">
-            <input type="checkbox" id="discordNotifyErrors" checked class="rounded text-brand-500">
+          <label class="flex items-center gap-2 p-2 rounded-xl hover:bg-slate-900/50 cursor-pointer">
+            <input type="checkbox" id="discordNotifyErrors" checked class="rounded bg-slate-900 border-slate-700 text-indigo-500 focus:ring-0">
             <span>Notifier les défis anti-bot et alertes de session</span>
           </label>
         </div>
         <div class="flex items-center gap-3 pt-4">
-          <button onclick="testDiscordWebhook()" class="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 font-semibold rounded-xl text-xs transition-colors">
+          <button onclick="testDiscordWebhook()" class="flex-1 py-3 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 font-bold rounded-xl text-xs transition-all active:scale-95">
             Tester le Webhook
           </button>
-          <button onclick="saveDiscordSettings()" class="flex-1 py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded-xl text-xs transition-colors">
+          <button onclick="saveDiscordSettings()" class="flex-1 py-3 bg-gradient-to-r from-indigo-600 to-brand-600 hover:from-indigo-500 hover:to-brand-500 text-white font-extrabold rounded-xl text-xs transition-all active:scale-95 shadow-lg shadow-indigo-950">
             Enregistrer
           </button>
         </div>
@@ -418,38 +638,38 @@
   </div>
 
   <!-- Ajouter un Compte Modal -->
-  <div id="modalAddAccount" class="fixed inset-0 z-50 hidden bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
-    <div class="bg-slate-950 border border-slate-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
-      <div class="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-900/50">
+  <div id="modalAddAccount" class="fixed inset-0 z-50 hidden bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="modal-content-anim glass-panel rounded-3xl w-full max-w-md shadow-2xl overflow-hidden border border-white/10">
+      <div class="flex items-center justify-between p-5 border-b border-white/10 bg-slate-950/60">
         <div class="flex items-center gap-3">
-          <div class="p-2 rounded-xl bg-brand-950/60 text-brand-400 border border-brand-800/40">
-            <i data-lucide="user-plus" class="w-5 h-5"></i>
+          <div class="p-2.5 rounded-2xl bg-brand-950/60 text-brand-400 border border-brand-800/40 shadow-glow-cyan">
+            <i data-lucide="user-plus" class="w-6 h-6"></i>
           </div>
           <div>
-            <h3 class="font-extrabold text-base text-white">Ajouter un Compte</h3>
-            <p class="text-xs text-slate-400">Configurez un nouveau profil navigateur isolé</p>
+            <h3 class="font-extrabold text-base text-white">Ajouter un Nouveau Compte</h3>
+            <p class="text-xs text-slate-400">Configurez un profil navigateur dédié et autonome</p>
           </div>
         </div>
-        <button onclick="closeModal('modalAddAccount')" class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors">
+        <button onclick="closeModal('modalAddAccount')" class="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
       <div class="p-6 space-y-4">
         <div>
-          <label class="block text-xs font-semibold text-slate-300 mb-1.5">Nom d'affichage du compte :</label>
-          <input type="text" id="newAccountName" placeholder="Ex: compte_4 ou Pseudo" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-white focus:border-brand-500 focus:outline-none">
+          <label class="block text-xs font-bold text-slate-200 mb-1.5">Nom d'affichage du compte :</label>
+          <input type="text" id="newAccountName" placeholder="Ex: compte_4 ou Pseudo" class="w-full bg-slate-950 border border-slate-700/80 rounded-xl p-3 text-xs text-white focus:border-brand-500 focus:outline-none">
         </div>
         <div>
-          <label class="block text-xs font-semibold text-slate-300 mb-1.5">Navigateur dédié :</label>
-          <select id="newAccountBrowser" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-white focus:border-brand-500 focus:outline-none">
+          <label class="block text-xs font-bold text-slate-200 mb-1.5">Navigateur dédié :</label>
+          <select id="newAccountBrowser" class="w-full bg-slate-950 border border-slate-700/80 rounded-xl p-3 text-xs text-white focus:border-brand-500 focus:outline-none font-semibold">
             <option value="chrome">Google Chrome (Recommandé)</option>
             <option value="brave">Brave Browser</option>
             <option value="edge">Microsoft Edge</option>
           </select>
         </div>
         <div class="pt-2">
-          <button onclick="submitAddAccount()" class="w-full py-3 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded-xl text-xs transition-all shadow-lg shadow-brand-950">
+          <button onclick="submitAddAccount()" class="w-full py-3.5 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-extrabold rounded-xl text-xs transition-all shadow-lg shadow-brand-950 active:scale-95">
             Créer et Ouvrir le Navigateur
           </button>
         </div>
@@ -458,25 +678,32 @@
   </div>
 
   <!-- Card Lightbox Modal -->
-  <div id="modalLightbox" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-lg flex items-center justify-center p-4" onclick="closeModal('modalLightbox')">
-    <div class="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-sm w-full text-center space-y-4 card-shine" onclick="event.stopPropagation()">
-      <div id="lightboxRarityBadge" class="inline-block px-3 py-1 rounded-full text-xs font-bold font-mono"></div>
-      <div class="relative w-48 h-64 mx-auto rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-slate-900 flex items-center justify-center">
-        <img id="lightboxImg" src="" alt="Carte" class="w-full h-full object-cover">
+  <div id="modalLightbox" class="fixed inset-0 z-50 hidden bg-black/85 backdrop-blur-xl flex items-center justify-center p-4" onclick="closeModal('modalLightbox')">
+    <div class="modal-content-anim glass-panel rounded-3xl p-6 max-w-sm w-full text-center space-y-4 border border-white/10 card-shine shadow-2xl" onclick="event.stopPropagation()">
+      <div id="lightboxRarityBadge" class="inline-block px-3.5 py-1 rounded-full text-xs font-extrabold font-mono shadow-md"></div>
+      
+      <div class="relative w-52 h-72 mx-auto rounded-2xl overflow-hidden border border-white/15 shadow-2xl bg-slate-950 flex items-center justify-center group/lightbox">
+        <img id="lightboxImg" src="" alt="Carte" class="w-full h-full object-cover transition-transform duration-500 group-hover/lightbox:scale-105">
       </div>
+
       <div>
         <h4 id="lightboxTitle" class="text-base font-extrabold text-white"></h4>
         <p id="lightboxSubtitle" class="text-xs text-slate-400 mt-1"></p>
       </div>
-      <div class="pt-2">
-        <button onclick="closeModal('modalLightbox')" class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 rounded-xl text-xs font-semibold transition-colors">
+
+      <div class="pt-2 flex items-center justify-center gap-3">
+        <a id="lightboxWikiBtn" href="#" target="_blank" rel="noopener noreferrer" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-brand-300 hover:text-brand-200 border border-slate-700/80 rounded-xl text-xs font-bold transition-colors inline-flex items-center gap-1.5">
+          <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+          <span>Wikipédia</span>
+        </a>
+        <button onclick="closeModal('modalLightbox')" class="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition-colors">
           Fermer
         </button>
       </div>
     </div>
   </div>
 
-  <!-- ─── SCRIPT APPLICATION ──────────────────────────────────────────────── -->
+  <!-- ─── JAVASCRIPT APPLICATION CORE ─────────────────────────────────────── -->
   <script>
     let state = {
       accounts: [],
@@ -484,35 +711,95 @@
       is_running: true,
       logs: [],
       sound_enabled: true,
-      log_filter: 'all'
+      log_filter: 'all',
+      log_search: ''
     };
 
-    // Audio Chime synthétisé via Web Audio API (zéro dépendance externe)
-    function playChime(freq = 587.33) {
+    // ─── Floating Toast Notification Engine ───
+    function showToast(message, type = 'info', duration = 3500) {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      
+      let borderClass = 'border-brand-500/30 text-brand-300';
+      let icon = 'info';
+      let bgGrad = 'from-slate-900 to-slate-950';
+
+      if (type === 'success') {
+        borderClass = 'border-emerald-500/40 text-emerald-300';
+        icon = 'check-circle-2';
+        bgGrad = 'from-emerald-950/80 to-slate-950';
+      } else if (type === 'warning') {
+        borderClass = 'border-amber-500/40 text-amber-300';
+        icon = 'alert-triangle';
+        bgGrad = 'from-amber-950/80 to-slate-950';
+      } else if (type === 'error') {
+        borderClass = 'border-rose-500/40 text-rose-300';
+        icon = 'alert-octagon';
+        bgGrad = 'from-rose-950/80 to-slate-950';
+      }
+
+      toast.className = `toast-enter pointer-events-auto flex items-start gap-3 p-3.5 rounded-2xl bg-gradient-to-r ${bgGrad} border ${borderClass} shadow-2xl backdrop-blur-xl text-xs`;
+      toast.innerHTML = `
+        <i data-lucide="${icon}" class="w-4 h-4 flex-shrink-0 mt-0.5"></i>
+        <div class="flex-1 font-semibold text-slate-100">${message}</div>
+      `;
+
+      container.appendChild(toast);
+      lucide.createIcons();
+
+      setTimeout(() => {
+        toast.classList.remove('toast-enter');
+        toast.classList.add('toast-exit');
+        setTimeout(() => toast.remove(), 260);
+      }, duration);
+    }
+
+    // ─── Synthesized Web Audio Engine ───
+    function playChime(type = 'pull') {
       if (!state.sound_enabled) return;
       try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(freq, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15);
-        gain.gain.setValueAtTime(0.15, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.45);
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        const ctx = new AudioCtx();
+        const now = ctx.currentTime;
+
+        if (type === 'pull' || type === 'success') {
+          // Double note chime (Mi - Si)
+          [659.25, 987.77].forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+            gain.gain.setValueAtTime(0.12, now + idx * 0.08);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.35);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + idx * 0.08);
+            osc.stop(now + idx * 0.08 + 0.35);
+          });
+        } else if (type === 'alert') {
+          // Warning chime
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "triangle";
+          osc.frequency.setValueAtTime(440, now);
+          osc.frequency.exponentialRampToValueAtTime(330, now + 0.2);
+          gain.gain.setValueAtTime(0.15, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.25);
+        }
       } catch(e) {}
     }
 
-    // Palette des raretés
+    // ─── Palette des Raretés WikiMasters ───
     const RARITY_COLORS = {
-      'L':  { bg: 'bg-rose-950/80', text: 'text-rose-300', border: 'border-rose-500/40', badge: 'bg-rose-500 text-white', label: 'Légendaire' },
-      'UR': { bg: 'bg-amber-950/80', text: 'text-amber-300', border: 'border-amber-500/40', badge: 'bg-amber-500 text-black', label: 'Ultra Rare' },
-      'SR': { bg: 'bg-purple-950/80', text: 'text-purple-300', border: 'border-purple-500/40', badge: 'bg-purple-500 text-white', label: 'Super Rare' },
-      'R':  { bg: 'bg-blue-950/80', text: 'text-blue-300', border: 'border-blue-500/40', badge: 'bg-blue-500 text-white', label: 'Rare' },
-      'PC': { bg: 'bg-teal-950/80', text: 'text-teal-300', border: 'border-teal-500/40', badge: 'bg-teal-500 text-white', label: 'Peu Commune' },
+      'L':  { bg: 'bg-rose-950/80', text: 'text-rose-300', border: 'border-rose-500/50 shadow-glow-rose', badge: 'bg-gradient-to-r from-rose-600 to-pink-600 text-white', label: 'Légendaire' },
+      'UR': { bg: 'bg-amber-950/80', text: 'text-amber-300', border: 'border-amber-500/50 shadow-glow-amber', badge: 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 font-black', label: 'Ultra Rare' },
+      'SR': { bg: 'bg-purple-950/80', text: 'text-purple-300', border: 'border-purple-500/50 shadow-glow-purple', badge: 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white', label: 'Super Rare' },
+      'R':  { bg: 'bg-blue-950/80', text: 'text-blue-300', border: 'border-blue-500/40 shadow-glow-indigo', badge: 'bg-gradient-to-r from-blue-600 to-sky-600 text-white', label: 'Rare' },
+      'PC': { bg: 'bg-teal-950/80', text: 'text-teal-300', border: 'border-teal-500/40 shadow-glow-emerald', badge: 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white', label: 'Peu Commune' },
       'C':  { bg: 'bg-slate-900', text: 'text-slate-400', border: 'border-slate-700/40', badge: 'bg-slate-700 text-white', label: 'Commune' },
     };
 
@@ -524,7 +811,7 @@
       return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     }
 
-    // Synchronisation de l'état
+    // ─── Synchronisation de l'état ───
     async function fetchState() {
       try {
         const res = await fetch('/api/state');
@@ -537,23 +824,24 @@
       }
     }
 
-    // Rendu de l'UI
+    // ─── Mise à jour de l'UI ───
     function updateUI(data) {
       state.accounts = data.accounts || [];
       state.stats = data.stats || {};
       state.is_running = data.is_running;
 
-      // Stats du Header
+      // KPIs
       document.getElementById('statTotalPacks').innerText = Number(state.stats.total_packs || 0).toLocaleString();
       document.getElementById('statTotalCards').innerText = `${Number(state.stats.total_cards || 0).toLocaleString()} cartes`;
-      document.getElementById('accountCountBadge').innerText = state.accounts.length;
+      document.getElementById('accountCountBadge').innerText = `${state.accounts.length} comptes actifs`;
       if (data.version) {
         document.getElementById('versionBadge').innerText = `v${data.version}`;
       }
 
-      // Prochain tirage global
-      const minSec = Math.min(...state.accounts.map(a => a.remaining_seconds || 9999));
-      document.getElementById('statNextPull').innerText = minSec < 9000 ? formatTime(minSec) : "--:--";
+      // Prochain tirage flotte
+      const readySecs = state.accounts.map(a => a.remaining_seconds || 0).filter(s => s > 0);
+      const minSec = readySecs.length ? Math.min(...readySecs) : 0;
+      document.getElementById('statNextPull').innerText = minSec > 0 ? formatTime(minSec) : "PRÊT !";
 
       // Bouton Pause
       const pauseText = document.getElementById('pauseText');
@@ -571,42 +859,59 @@
 
       // Rendu des logs
       if (data.logs && data.logs.length) {
+        state.logs = data.logs;
         renderLogs(data.logs);
       }
 
       lucide.createIcons();
     }
 
-    // Rendu des Cartes de Comptes
+    // ─── Rendu des Cartes de Comptes ───
     function renderAccountCards() {
       const grid = document.getElementById('cardsGrid');
       grid.innerHTML = '';
 
       state.accounts.forEach((acc, idx) => {
         const cardEl = document.createElement('div');
-        cardEl.className = "bg-slate-950/70 border border-slate-800/80 hover:border-slate-700 rounded-3xl p-5 shadow-2xl backdrop-blur-xl flex flex-col justify-between transition-all hover:-translate-y-1 relative overflow-hidden group";
+        cardEl.className = "glass-card rounded-3xl p-5 shadow-2xl flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 relative overflow-hidden group";
 
-        // Circonférence Donut SVG
+        // Donut SVG circumference calculation
         const radius = 38;
         const circ = 2 * Math.PI * radius;
-        const totalTimerSec = 600; // 10 min par défaut
+        const totalTimerSec = 600; // 10 min
         const leftSec = acc.remaining_seconds || 0;
         const progress = Math.max(0, Math.min(1, (totalTimerSec - leftSec) / totalTimerSec));
         const offset = circ - (progress * circ);
 
-        // Status pill
-        let statusBadgeClass = "bg-emerald-950/60 text-emerald-400 border border-emerald-800/40";
-        if (acc.is_reconnect_needed) {
-          statusBadgeClass = "bg-amber-950/60 text-amber-300 border border-amber-800/50";
-        } else if (acc.is_captcha_blocked) {
-          statusBadgeClass = "bg-rose-950/60 text-rose-400 border border-rose-800/50 animate-pulse";
-        } else if (acc.status_text && (acc.status_text.includes("Limite") || acc.status_text.includes("🛑"))) {
-          statusBadgeClass = "bg-amber-950/70 text-amber-400 border border-amber-600/50";
+        // Status Badge Style
+        let statusBadgeClass = "bg-emerald-950/70 text-emerald-300 border border-emerald-500/40 shadow-glow-emerald";
+        let statusText = acc.status_text || "✅ Prêt";
+
+        if (statusText.includes("Limite") || statusText.includes("🛑")) {
+          statusBadgeClass = "bg-amber-950/80 text-amber-300 border border-amber-500/50 shadow-glow-amber";
+        } else if (acc.is_reconnect_needed || statusText.includes("Reconnecter") || statusText.includes("Session expirée")) {
+          statusBadgeClass = "bg-rose-950/80 text-rose-300 border border-rose-500/50 shadow-glow-rose";
+        } else if (acc.is_captcha_blocked || statusText.includes("Défi")) {
+          statusBadgeClass = "bg-purple-950/80 text-purple-300 border border-purple-500/50 animate-pulse shadow-glow-purple";
         } else if (!acc.is_connected) {
           statusBadgeClass = "bg-slate-900 text-slate-400 border border-slate-800";
         }
 
-        // Cartes récentes (5 slots)
+        // Segmented Stock Bar (e.g. 10 slots)
+        let stockNum = 0;
+        if (acc.stock_data) {
+          const match = String(acc.stock_data).match(/(\d+)\s*\/\s*(\d+)/);
+          if (match) stockNum = parseInt(match[1]);
+        }
+        let stockSegmentsHtml = '';
+        for (let s = 1; s <= 10; s++) {
+          const isFilled = s <= stockNum;
+          stockSegmentsHtml += `
+            <div class="h-1.5 flex-1 rounded-full ${isFilled ? 'bg-amber-400 shadow-sm' : 'bg-slate-800'} transition-all"></div>
+          `;
+        }
+
+        // Recent Pulled Cards (5 slots)
         let cardsHtml = '';
         const recent = (acc.last_cards || []).slice(0, 5);
         for (let i = 0; i < 5; i++) {
@@ -617,59 +922,64 @@
             const title = c.wikipedia_title || c.title || 'Carte';
             const img = c.image_url || '';
             cardsHtml += `
-              <div onclick='openLightbox(${JSON.stringify(c)})' title="${title} (${rCfg.label})" class="relative w-12 h-16 rounded-lg overflow-hidden border ${rCfg.border} bg-slate-900 cursor-pointer card-shine group/card flex-shrink-0">
+              <div onclick='openLightbox(${JSON.stringify(c)})' title="${title} (${rCfg.label})" class="relative w-12 h-16 rounded-xl overflow-hidden border ${rCfg.border} bg-slate-950 cursor-pointer card-shine group/card flex-shrink-0 transition-transform duration-200 hover:scale-110 shadow-lg">
                 ${img ? `<img src="${img}" class="w-full h-full object-cover">` : `<div class="w-full h-full flex items-center justify-center text-[10px] text-slate-500 font-bold">${r}</div>`}
-                <span class="absolute bottom-0 inset-x-0 text-[8px] font-mono font-bold text-center ${rCfg.badge} py-0.2">${r}</span>
+                <span class="absolute bottom-0 inset-x-0 text-[8px] font-mono font-bold text-center ${rCfg.badge} py-0.5 tracking-tighter">${r}</span>
               </div>
             `;
           } else {
             cardsHtml += `
-              <div class="w-12 h-16 rounded-lg border border-dashed border-slate-800/80 bg-slate-900/30 flex items-center justify-center text-slate-700 text-xs flex-shrink-0">
+              <div class="w-12 h-16 rounded-xl border border-dashed border-white/10 bg-slate-950/40 flex items-center justify-center text-slate-700 text-xs flex-shrink-0">
                 <span>·</span>
               </div>
             `;
           }
         }
 
-        // Bouton Reconnecter ou Résoudre
+        // Context Action Button
         let setupBtn = `
-          <button onclick="openBrowser('${acc.id}')" class="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-bold border border-slate-700/60 flex items-center gap-1.5 transition-colors">
-            <i data-lucide="key" class="w-3.5 h-3.5"></i>
-            <span>${acc.is_connected ? 'Reconnecter' : 'Connecter'}</span>
+          <button onclick="openBrowser('${acc.id}')" class="px-3 py-2 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-bold border border-white/10 flex items-center gap-1.5 transition-all active:scale-95">
+            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+            <span>${acc.is_connected ? 'Ouvrir' : 'Connecter'}</span>
           </button>
         `;
-        if (acc.is_reconnect_needed) {
+        if (acc.is_reconnect_needed || statusText.includes("Reconnecter")) {
           setupBtn = `
-            <button onclick="openBrowser('${acc.id}')" class="px-3 py-2 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-amber-950 flex items-center gap-1.5 transition-all glow-gold">
+            <button onclick="openBrowser('${acc.id}')" class="px-3.5 py-2 bg-gradient-to-r from-amber-600 via-orange-600 to-rose-600 hover:from-amber-500 hover:to-rose-500 text-white rounded-xl text-xs font-black shadow-lg shadow-amber-950 flex items-center gap-1.5 transition-all active:scale-95 animate-pulse">
               <i data-lucide="key" class="w-3.5 h-3.5"></i>
               <span>🔑 Reconnecter</span>
             </button>
           `;
         } else if (acc.is_captcha_blocked) {
           setupBtn = `
-            <button onclick="resolveCaptcha('${acc.id}')" class="px-3 py-2 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-950 flex items-center gap-1.5 transition-all animate-pulse">
+            <button onclick="resolveCaptcha('${acc.id}')" class="px-3.5 py-2 bg-gradient-to-r from-purple-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white rounded-xl text-xs font-black shadow-lg shadow-purple-950 flex items-center gap-1.5 transition-all active:scale-95 animate-pulse">
               <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i>
               <span>🛠️ Résoudre</span>
             </button>
           `;
         }
 
+        // Browser badge styling
+        let browserColor = "bg-blue-950/60 text-blue-300 border-blue-800/40";
+        if (acc.browser_type === "brave") browserColor = "bg-orange-950/60 text-orange-300 border-orange-800/40";
+        if (acc.browser_type === "edge") browserColor = "bg-teal-950/60 text-teal-300 border-teal-800/40";
+
         cardEl.innerHTML = `
           <!-- Header Card -->
           <div class="flex items-center justify-between gap-3 mb-4">
             <div class="flex items-center gap-2.5 min-w-0">
-              <button onclick="toggleMainAccount('${acc.id}')" title="${acc.is_main ? 'Chef de Guilde' : 'Définir comme Chef de Guilde'}" class="text-base transition-transform active:scale-125">
-                ${acc.is_main ? '⭐' : '☆'}
+              <button onclick="toggleMainAccount('${acc.id}')" title="${acc.is_main ? 'Compte Principal (Chef de Guilde)' : 'Définir comme Compte Principal'}" class="text-base transition-transform active:scale-125 focus:outline-none">
+                ${acc.is_main ? '<span class="text-amber-400 drop-shadow">⭐</span>' : '<span class="text-slate-600 hover:text-amber-400">☆</span>'}
               </button>
               <div class="truncate">
                 <div class="flex items-center gap-2">
-                  <span class="font-extrabold text-sm text-white truncate">${acc.name}</span>
-                  <button onclick="renameAccountPrompt('${acc.id}', '${acc.name}')" title="Renommer" class="text-slate-500 hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <span class="font-extrabold text-sm text-white truncate tracking-tight">${acc.name}</span>
+                  <button onclick="renameAccountPrompt('${acc.id}', '${acc.name}')" title="Renommer le compte" class="text-slate-500 hover:text-slate-200 opacity-0 group-hover:opacity-100 transition-opacity">
                     <i data-lucide="edit-3" class="w-3 h-3"></i>
                   </button>
                 </div>
-                <div class="text-[10px] text-slate-500 capitalize flex items-center gap-1">
-                  <span>${acc.browser_type}</span>
+                <div class="text-[10px] text-slate-400 capitalize flex items-center gap-1.5 mt-0.5">
+                  <span class="px-1.5 py-0.2 rounded border ${browserColor} font-semibold">${acc.browser_type}</span>
                   <span>•</span>
                   <span>${acc.cards_count || 0} cartes</span>
                 </div>
@@ -677,18 +987,18 @@
             </div>
 
             <!-- Status Pill -->
-            <span class="text-[10px] font-bold px-2.5 py-1 rounded-full ${statusBadgeClass} flex-shrink-0">
-              ${acc.status_text}
+            <span class="text-[10px] font-extrabold px-3 py-1 rounded-full ${statusBadgeClass} flex-shrink-0 flex items-center gap-1.5">
+              <span>${statusText}</span>
             </span>
           </div>
 
           <!-- Donut Timer & Stock Display -->
-          <div class="flex items-center justify-between gap-4 py-3 border-y border-slate-800/60 my-2">
+          <div class="flex items-center justify-between gap-4 py-3.5 border-y border-white/5 my-2">
             <!-- SVG Donut -->
             <div class="relative w-24 h-24 flex items-center justify-center flex-shrink-0">
               <svg class="w-full h-full -rotate-90" viewBox="0 0 90 90">
                 <!-- Track -->
-                <circle cx="45" cy="45" r="${radius}" fill="none" stroke="#1e293b" stroke-width="7" />
+                <circle cx="45" cy="45" r="${radius}" fill="none" stroke="#161f38" stroke-width="7" />
                 <!-- Arc -->
                 <circle cx="45" cy="45" r="${radius}" fill="none" stroke="url(#accentGrad-${idx})" stroke-width="7" stroke-dasharray="${circ}" stroke-dashoffset="${offset}" stroke-linecap="round" class="transition-all duration-1000 ease-linear" />
                 <defs>
@@ -699,30 +1009,34 @@
                 </defs>
               </svg>
               <div class="absolute inset-0 flex flex-col items-center justify-center text-center">
-                <span class="font-mono font-extrabold text-sm text-white">${formatTime(leftSec)}</span>
-                <span class="text-[9px] text-slate-400 font-semibold mt-0.5">${leftSec === 0 ? 'PRÊT !' : 'ATTENTE'}</span>
+                <span class="font-mono font-extrabold text-sm text-white tabular-nums">${formatTime(leftSec)}</span>
+                <span class="text-[8px] text-slate-400 font-extrabold tracking-wider mt-0.5">${leftSec === 0 ? 'PRÊT !' : 'ATTENTE'}</span>
               </div>
             </div>
 
-            <!-- Right Info -->
+            <!-- Right Info (Stock & Details) -->
             <div class="flex-1 space-y-2">
-              <div class="text-xs">
-                <div class="text-slate-400 text-[10px] uppercase font-semibold">Stock de paquets</div>
-                <div class="font-bold text-sm text-amber-300 font-mono mt-0.5">
-                  ${acc.stock_data ? acc.stock_data : 'Stock prêt'}
+              <div>
+                <div class="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                  <span>Stock Paquets</span>
+                  <span class="text-amber-300 font-mono font-black">${acc.stock_data || '0 / 10'}</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  ${stockSegmentsHtml}
                 </div>
               </div>
-              <div class="text-[11px] text-slate-400 line-clamp-2">
-                ${acc.sub_lbl || 'Prêt pour le tirage'}
+
+              <div class="text-[11px] text-slate-300 font-medium line-clamp-2 bg-slate-950/40 p-2 rounded-xl border border-white/5">
+                ${acc.sub_lbl || 'Prêt pour le prochain tirage'}
               </div>
             </div>
           </div>
 
           <!-- Pulled Cards Carousel -->
           <div class="space-y-1.5 my-3">
-            <div class="flex items-center justify-between text-[10px] text-slate-400 uppercase font-semibold">
+            <div class="flex items-center justify-between text-[10px] text-slate-400 uppercase font-bold tracking-wider">
               <span>Dernières Cartes</span>
-              <span>${recent.length} / 5</span>
+              <span class="text-slate-500 font-mono">${recent.length} / 5</span>
             </div>
             <div class="flex items-center gap-2 overflow-x-auto pb-1">
               ${cardsHtml}
@@ -730,16 +1044,20 @@
           </div>
 
           <!-- Bottom Action Buttons -->
-          <div class="flex items-center gap-2 pt-3 border-t border-slate-800/60">
+          <div class="flex items-center gap-2 pt-3 border-t border-white/5">
             ${setupBtn}
 
-            <button onclick="claimSingle('${acc.id}')" class="flex-1 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-lg shadow-brand-950 flex items-center justify-center gap-1.5">
+            <button onclick="claimSingle('${acc.id}')" class="flex-1 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-lg shadow-brand-950 flex items-center justify-center gap-1.5 border border-brand-400/20">
               <i data-lucide="zap" class="w-3.5 h-3.5"></i>
               <span>Tirer</span>
             </button>
 
-            <button onclick="refreshSingle('${acc.id}')" title="Actualiser" class="p-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white rounded-xl border border-slate-800 transition-colors">
+            <button onclick="refreshSingle('${acc.id}')" title="Actualiser la session" class="p-2 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl border border-white/10 transition-colors">
               <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
+            </button>
+
+            <button onclick="confirmDeleteAccount('${acc.id}', '${acc.name}')" title="Supprimer ce compte" class="p-2 bg-slate-900/50 hover:bg-rose-950/60 text-slate-500 hover:text-rose-400 rounded-xl border border-white/5 transition-colors">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
             </button>
           </div>
         `;
@@ -748,16 +1066,18 @@
       });
     }
 
-    // Rendu des logs
+    // ─── Rendu du Journal d'Activité ───
     function renderLogs(logs) {
       const container = document.getElementById('logContainer');
       const shouldScroll = document.getElementById('chkAutoScroll').checked;
       
       container.innerHTML = '';
       const filter = state.log_filter;
+      const search = (state.log_search || '').toLowerCase();
 
       logs.forEach(log => {
         if (filter !== 'all' && log.level !== filter) return;
+        if (search && !log.message.toLowerCase().includes(search)) return;
 
         let colorClass = "text-slate-300";
         let icon = "›";
@@ -767,9 +1087,9 @@
         else if (log.level === 'stealth') { colorClass = "text-purple-400"; icon = "🛡️"; }
 
         const line = document.createElement('div');
-        line.className = "flex items-start gap-2 text-[11px] leading-relaxed";
+        line.className = "flex items-start gap-2 text-[11px] leading-relaxed hover:bg-white/[0.02] p-0.5 rounded transition-colors";
         line.innerHTML = `
-          <span class="text-slate-600 select-none">[${log.time || '--:--:--'}]</span>
+          <span class="text-slate-600 select-none tabular-nums">[${log.time || '--:--:--'}]</span>
           <span class="font-bold select-none">${icon}</span>
           <span class="${colorClass}">${log.message}</span>
         `;
@@ -781,10 +1101,16 @@
       }
     }
 
+    function filterLogsRealtime() {
+      state.log_search = document.getElementById('logSearchInput').value;
+      renderLogs(state.logs);
+    }
+
     // ─── ACTIONS API ─────────────────────────────────────────────────────────
 
     async function claimAll() {
-      playChime(659.25);
+      playChime('pull');
+      showToast("Lancement du tirage sur tous les comptes en parallèle…", "info");
       await fetch('/api/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -793,7 +1119,8 @@
     }
 
     async function claimSingle(accountId) {
-      playChime(659.25);
+      playChime('pull');
+      showToast(`Tirage lancé pour le compte…`, "info");
       await fetch('/api/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -802,6 +1129,7 @@
     }
 
     async function refreshSingle(accountId) {
+      showToast("Actualisation du compte…", "info");
       await fetch('/api/refresh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -815,10 +1143,12 @@
     }
 
     async function syncFriends() {
+      showToast("Interconnexion des amis de la flotte en cours…", "info");
       await fetch('/api/sync_friends', { method: 'POST' });
     }
 
     async function openBrowser(accountId) {
+      showToast("Ouverture de la fenêtre du navigateur…", "info");
       await fetch('/api/open_browser', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -827,6 +1157,7 @@
     }
 
     async function resolveCaptcha(accountId) {
+      showToast("Ouverture pour résolution de défi anti-bot…", "warning");
       await fetch('/api/open_browser', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -840,17 +1171,31 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ account_id: accountId })
       });
+      showToast("Compte principal mis à jour !", "success");
       fetchState();
     }
 
     async function renameAccountPrompt(accountId, currentName) {
-      const newName = prompt("Nouveau nom pour ce compte :", currentName);
+      const newName = prompt("Nouveau nom d'affichage pour ce compte :", currentName);
       if (newName && newName.trim() && newName !== currentName) {
         await fetch('/api/rename', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ account_id: accountId, new_name: newName.trim() })
         });
+        showToast("Compte renommé avec succès !", "success");
+        fetchState();
+      }
+    }
+
+    async function confirmDeleteAccount(accountId, accountName) {
+      if (confirm(`Voulez-vous vraiment supprimer le compte "${accountName}" de la flotte ?`)) {
+        await fetch('/api/delete_account', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_id: accountId })
+        });
+        showToast(`Compte "${accountName}" supprimé.`, "warning");
         fetchState();
       }
     }
@@ -858,17 +1203,18 @@
     async function submitAddAccount() {
       const name = document.getElementById('newAccountName').value.trim();
       const bType = document.getElementById('newAccountBrowser').value;
-      if (!name) return alert("Veuillez entrer un nom");
+      if (!name) return showToast("Veuillez saisir un nom", "warning");
       await fetch('/api/add_account', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name, browser_type: bType })
       });
       closeModal('modalAddAccount');
+      showToast(`Compte "${name}" créé et navigateur lancé !`, "success");
       fetchState();
     }
 
-    // Modal Top 10
+    // ─── Modal Top 10 ───
     async function loadTop10() {
       const res = await fetch('/api/best_cards');
       if (!res.ok) return;
@@ -881,11 +1227,11 @@
 
       accounts.forEach((accId, idx) => {
         const btn = document.createElement('button');
-        btn.className = `px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${idx === 0 ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`;
+        btn.className = `px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${idx === 0 ? 'bg-purple-600 text-white shadow-glow-purple' : 'bg-slate-900 text-slate-300 hover:bg-slate-800'}`;
         btn.innerText = accId;
         btn.onclick = () => {
-          Array.from(tabs.children).forEach(c => c.className = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-slate-300 hover:bg-slate-700');
-          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-600 text-white';
+          Array.from(tabs.children).forEach(c => c.className = 'px-3.5 py-1.5 rounded-xl text-xs font-bold bg-slate-900 text-slate-300 hover:bg-slate-800');
+          btn.className = 'px-3.5 py-1.5 rounded-xl text-xs font-bold bg-purple-600 text-white shadow-glow-purple';
           renderTop10Cards(data[accId] || []);
         };
         tabs.appendChild(btn);
@@ -898,7 +1244,7 @@
       const grid = document.getElementById('top10Grid');
       grid.innerHTML = '';
       if (!cards.length) {
-        grid.innerHTML = '<div class="col-span-full text-center text-xs text-slate-500 py-8">Aucune carte enregistrée dans le Top 10.</div>';
+        grid.innerHTML = '<div class="col-span-full text-center text-xs text-slate-500 py-12">Aucune carte enregistrée dans le Top 10 pour le moment.</div>';
         return;
       }
       cards.forEach(c => {
@@ -907,43 +1253,137 @@
         const title = c.wikipedia_title || c.title || 'Carte';
         const img = c.image_url || '';
         const el = document.createElement('div');
-        el.className = `p-3 rounded-2xl border ${rCfg.border} bg-slate-900/60 card-shine flex flex-col items-center text-center space-y-2 cursor-pointer`;
+        el.className = `p-3 rounded-2xl border ${rCfg.border} bg-slate-950/60 card-shine flex flex-col items-center text-center space-y-2 cursor-pointer transition-all hover:scale-105 shadow-xl`;
         el.onclick = () => openLightbox(c);
         el.innerHTML = `
           <div class="relative w-24 h-32 rounded-xl overflow-hidden bg-slate-950 border border-white/10 shadow-lg">
             ${img ? `<img src="${img}" class="w-full h-full object-cover">` : `<div class="w-full h-full flex items-center justify-center text-xs font-bold">${r}</div>`}
           </div>
           <span class="text-[9px] font-mono font-bold px-2 py-0.5 rounded-full ${rCfg.badge}">${rCfg.label}</span>
-          <div class="text-xs font-bold text-white line-clamp-2">${title}</div>
+          <div class="text-xs font-bold text-white line-clamp-2 leading-tight">${title}</div>
         `;
         grid.appendChild(el);
       });
     }
 
-    // Dons & Transferts
+    // ─── Modal Fleet Stats & Historique ───
+    async function loadFleetStats() {
+      try {
+        const res = await fetch('/api/fleet_stats');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // 1. KPI
+        const totalPacks = Object.values(data.lifetime || {}).reduce((acc, v) => acc + (v.total_packs || 0), 0);
+        let totalCards = 0;
+        let rarityTotals = { 'L': 0, 'UR': 0, 'SR': 0, 'R': 0, 'PC': 0, 'C': 0 };
+
+        state.accounts.forEach(a => {
+          totalCards += a.cards_count || 0;
+          if (a.rarity_counts) {
+            Object.keys(rarityTotals).forEach(r => {
+              rarityTotals[r] += a.rarity_counts[r] || 0;
+            });
+          }
+        });
+
+        const kpi = document.getElementById('fleetStatsKpi');
+        kpi.innerHTML = `
+          <div class="p-4 rounded-2xl bg-slate-950/80 border border-white/5">
+            <div class="text-[10px] text-slate-400 font-bold uppercase">Total Paquets Ouverts</div>
+            <div class="text-xl font-black text-amber-400 font-mono mt-1">${totalPacks.toLocaleString()}</div>
+          </div>
+          <div class="p-4 rounded-2xl bg-slate-950/80 border border-white/5">
+            <div class="text-[10px] text-slate-400 font-bold uppercase">Collection Cartes</div>
+            <div class="text-xl font-black text-emerald-400 font-mono mt-1">${totalCards.toLocaleString()}</div>
+          </div>
+          <div class="p-4 rounded-2xl bg-slate-950/80 border border-white/5">
+            <div class="text-[10px] text-slate-400 font-bold uppercase">Cartes d'Élite (L / UR)</div>
+            <div class="text-xl font-black text-purple-400 font-mono mt-1">${(rarityTotals['L'] + rarityTotals['UR']).toLocaleString()}</div>
+          </div>
+          <div class="p-4 rounded-2xl bg-slate-950/80 border border-white/5">
+            <div class="text-[10px] text-slate-400 font-bold uppercase">Comptes Opérationnels</div>
+            <div class="text-xl font-black text-sky-400 font-mono mt-1">${state.accounts.length}</div>
+          </div>
+        `;
+
+        // 2. Rarity Progress Bars
+        const rBars = document.getElementById('rarityDistributionBars');
+        rBars.innerHTML = '';
+        const sumCards = Math.max(1, totalCards);
+        ['L', 'UR', 'SR', 'R', 'PC', 'C'].forEach(r => {
+          const count = rarityTotals[r] || 0;
+          const pct = ((count / sumCards) * 100).toFixed(1);
+          const rCfg = RARITY_COLORS[r];
+          rBars.innerHTML += `
+            <div class="space-y-1">
+              <div class="flex items-center justify-between text-xs">
+                <span class="font-bold flex items-center gap-1.5 ${rCfg.text}">
+                  <span>${rCfg.label} (${r})</span>
+                </span>
+                <span class="font-mono text-slate-400">${count.toLocaleString()} (${pct}%)</span>
+              </div>
+              <div class="w-full h-2 rounded-full bg-slate-900 overflow-hidden">
+                <div class="h-full rounded-full ${rCfg.badge} transition-all duration-500" style="width: ${Math.max(1, pct)}%"></div>
+              </div>
+            </div>
+          `;
+        });
+
+        // 3. History Table
+        const hBody = document.getElementById('fleetHistoryBody');
+        hBody.innerHTML = '';
+        const historyList = (data.history || []).slice().reverse();
+        if (!historyList.length) {
+          hBody.innerHTML = '<tr><td colspan="5" class="py-6 text-center text-slate-500">Aucun historique récent disponible.</td></tr>';
+          return;
+        }
+
+        historyList.forEach(item => {
+          const tr = document.createElement('tr');
+          tr.className = "hover:bg-white/[0.02] transition-colors";
+          tr.innerHTML = `
+            <td class="py-2.5 px-3 text-slate-400 tabular-nums">${item.timestamp || '--'}</td>
+            <td class="py-2.5 px-3 font-bold text-white">${item.browser || item.browser_key}</td>
+            <td class="py-2.5 px-3 text-amber-300 font-bold">${item.packs_count || 1} paquet</td>
+            <td class="py-2.5 px-3 text-slate-300 truncate max-w-xs" title="${item.cards || ''}">${item.cards || '--'}</td>
+            <td class="py-2.5 px-3 text-emerald-400 font-semibold">${item.rarity_summary || item.rarities || '--'}</td>
+          `;
+          hBody.appendChild(tr);
+        });
+
+      } catch(err) {
+        console.error("Erreur stats flotte:", err);
+      }
+    }
+
+    // ─── Dons & Transferts ───
     async function executeBulkDonation() {
       const target = document.getElementById('transferTargetSelect').value;
       const rarities = [];
       if (document.getElementById('chkC').checked) rarities.push('C');
       if (document.getElementById('chkPC').checked) rarities.push('PC');
       if (document.getElementById('chkR').checked) rarities.push('R');
-      if (!target) return alert("Sélectionnez un compte cible");
+      const keepDuplicates = document.getElementById('chkKeepDuplicates').checked;
+
+      if (!target) return showToast("Veuillez sélectionner un compte cible", "warning");
 
       await fetch('/api/transfer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'centralize', target_name: target, rarities: rarities })
+        body: JSON.stringify({ mode: 'centralize', target_name: target, rarities: rarities, keep_duplicates: keepDuplicates })
       });
-      alert(`Centralisation lancée vers ${target} en arrière-plan ! Suivez l'avancement dans le journal.`);
+      showToast(`Centralisation lancée vers ${target} en arrière-plan !`, "success");
       closeModal('modalTransfer');
     }
 
-    // Modal Guilde
+    // ─── Guilde ───
     async function syncGuild() {
       await fetch('/api/guild_sync', { method: 'POST' });
+      showToast("Intégration de tous les comptes à la guilde lancée en arrière-plan…", "info");
     }
 
-    // Modal Discord
+    // ─── Discord ───
     async function loadDiscordSettings() {
       const res = await fetch('/api/discord');
       if (res.ok) {
@@ -963,20 +1403,21 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ webhook_url: url, notify_rare_only: rareOnly, notify_errors: errors })
       });
-      alert("Paramètres Discord enregistrés !");
+      showToast("Paramètres Discord enregistrés !", "success");
       closeModal('modalDiscord');
     }
 
     async function testDiscordWebhook() {
       const res = await fetch('/api/discord_test', { method: 'POST' });
       const data = await res.json();
-      alert(data.message || (data.success ? "Test réussi !" : "Échec du test"));
+      showToast(data.message || (data.success ? "Test webhook réussi !" : "Échec du test"), data.success ? "success" : "error");
     }
 
-    // Modals Helpers
+    // ─── Modals Helpers ───
     function openModal(id) {
       document.getElementById(id).classList.remove('hidden');
       if (id === 'modalTop10') loadTop10();
+      if (id === 'modalFleetStats') loadFleetStats();
       if (id === 'modalDiscord') loadDiscordSettings();
       if (id === 'modalTransfer') {
         const sel = document.getElementById('transferTargetSelect');
@@ -989,30 +1430,51 @@
           sel.appendChild(opt);
         });
       }
+      lucide.createIcons();
     }
 
     function closeModal(id) {
       document.getElementById(id).classList.add('hidden');
     }
 
+    // Close on Escape key
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        ['modalTop10', 'modalFleetStats', 'modalTransfer', 'modalGuild', 'modalDiscord', 'modalAddAccount', 'modalLightbox'].forEach(closeModal);
+      }
+    });
+
+    // ─── Lightbox Inspection ───
     function openLightbox(c) {
       const r = c.rarity || 'C';
       const rCfg = RARITY_COLORS[r] || RARITY_COLORS['C'];
       document.getElementById('lightboxImg').src = c.image_url || '';
       document.getElementById('lightboxTitle').innerText = c.wikipedia_title || c.title || 'Carte WikiMasters';
       document.getElementById('lightboxSubtitle').innerText = `${rCfg.label} • Rareté ${r}`;
+      
       const badge = document.getElementById('lightboxRarityBadge');
-      badge.className = `inline-block px-3 py-1 rounded-full text-xs font-bold font-mono ${rCfg.badge}`;
+      badge.className = `inline-block px-3.5 py-1 rounded-full text-xs font-extrabold font-mono ${rCfg.badge}`;
       badge.innerText = rCfg.label;
+
+      const wikiBtn = document.getElementById('lightboxWikiBtn');
+      const wTitle = c.wikipedia_title || c.title || '';
+      if (wTitle) {
+        wikiBtn.href = `https://fr.wikipedia.org/wiki/${encodeURIComponent(wTitle.replace(/\s+/g, '_'))}`;
+        wikiBtn.classList.remove('hidden');
+      } else {
+        wikiBtn.classList.add('hidden');
+      }
+
       openModal('modalLightbox');
     }
 
+    // ─── Filtrage Console ───
     function setLogFilter(filter) {
       state.log_filter = filter;
       ['all', 'success', 'warning', 'error'].forEach(f => {
         const btn = document.getElementById(`filter${f.charAt(0).toUpperCase() + f.slice(1)}`);
         if (btn) {
-          btn.className = (f === filter) ? 'px-2.5 py-1 rounded-md bg-brand-600 text-white font-medium' : 'px-2.5 py-1 rounded-md hover:bg-slate-800 text-slate-400 font-medium';
+          btn.className = (f === filter) ? 'px-2.5 py-1 rounded-lg bg-brand-600 text-white font-bold transition-colors' : 'px-2.5 py-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white font-semibold transition-colors';
         }
       });
       renderLogs(state.logs);
@@ -1021,18 +1483,20 @@
     function copyLogs() {
       const text = state.logs.map(l => `[${l.time}] ${l.message}`).join('\n');
       navigator.clipboard.writeText(text);
-      alert("Journal copié dans le presse-papier !");
+      showToast("Journal copié dans le presse-papier !", "success");
     }
 
     function clearLogs() {
       state.logs = [];
       document.getElementById('logContainer').innerHTML = '';
+      showToast("Journal de la console effacé.", "info");
     }
 
     function toggleSound() {
       state.sound_enabled = !state.sound_enabled;
       document.getElementById('soundIcon').setAttribute('data-lucide', state.sound_enabled ? 'volume-2' : 'volume-x');
       lucide.createIcons();
+      showToast(state.sound_enabled ? "Sons d'alerte activés" : "Sons d'alerte désactivés", "info");
     }
 
     // ─── INITIALISATION & SSE ────────────────────────────────────────────────
@@ -1058,7 +1522,8 @@
             state.logs.push(data);
             if (state.logs.length > 200) state.logs.shift();
             renderLogs(state.logs);
-            if (data.level === 'success') playChime(783.99);
+            if (data.level === 'success') playChime('success');
+            else if (data.level === 'error' || data.level === 'warning') playChime('alert');
           } catch(err) {}
         });
       } catch(err) {
