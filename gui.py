@@ -4510,6 +4510,12 @@ class MainWindow(QMainWindow):
         self.trigger_claim_cycle([account_id])
 
     def start_single_refresh(self, account_id):
+        if account_id == "all":
+            self.log("↻  Actualisation globale de tous les comptes…", "info")
+            all_ids = [acc["id"] for acc in engine.get_accounts()]
+            self.trigger_claim_cycle(all_ids)
+            return
+
         card = self.account_cards.get(account_id)
         title = card.title_text if card else account_id
         if account_id in self.claim_workers:

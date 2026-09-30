@@ -34,22 +34,15 @@
               800: '#075985',
               900: '#0c4a6e',
               950: '#082f49',
-            },
-            surface: {
-              base: '#050814',
-              card: '#0a0f20',
-              elevated: '#0f172e',
-              highlight: '#162244',
-              border: '#1a2744',
             }
           },
           boxShadow: {
-            'glow-cyan': '0 0 35px -5px rgba(56, 189, 248, 0.35)',
-            'glow-indigo': '0 0 35px -5px rgba(99, 102, 241, 0.35)',
-            'glow-emerald': '0 0 35px -5px rgba(16, 185, 129, 0.35)',
-            'glow-amber': '0 0 35px -5px rgba(245, 158, 11, 0.35)',
-            'glow-rose': '0 0 35px -5px rgba(244, 63, 94, 0.35)',
-            'glow-purple': '0 0 35px -5px rgba(168, 85, 247, 0.35)',
+            'glow-cyan': '0 0 35px -5px rgba(56, 189, 248, 0.4)',
+            'glow-indigo': '0 0 35px -5px rgba(99, 102, 241, 0.4)',
+            'glow-emerald': '0 0 35px -5px rgba(16, 185, 129, 0.4)',
+            'glow-amber': '0 0 35px -5px rgba(245, 158, 11, 0.4)',
+            'glow-rose': '0 0 35px -5px rgba(244, 63, 94, 0.4)',
+            'glow-purple': '0 0 35px -5px rgba(168, 85, 247, 0.4)',
           }
         }
       }
@@ -87,6 +80,9 @@
     .card-shine {
       position: relative;
       overflow: hidden;
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease;
+      transform-style: preserve-3d;
+      will-change: transform;
     }
     .card-shine::after {
       content: '';
@@ -129,25 +125,6 @@
       box-shadow: 0 16px 40px -10px rgba(14, 165, 233, 0.18), 0 0 0 1px rgba(56, 189, 248, 0.25);
     }
 
-    /* ─── Pulse Beacon ─── */
-    @keyframes beacon-ping {
-      0% { transform: scale(1); opacity: 0.8; }
-      50% { transform: scale(1.6); opacity: 0; }
-      100% { transform: scale(1); opacity: 0; }
-    }
-    .beacon-active {
-      position: relative;
-    }
-    .beacon-active::before {
-      content: '';
-      position: absolute;
-      inset: -2px;
-      border-radius: 9999px;
-      background: currentColor;
-      animation: beacon-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
-      z-index: 0;
-    }
-
     /* ─── Toast Notifications Animation ─── */
     @keyframes toast-in {
       from { transform: translateX(110%) scale(0.9); opacity: 0; }
@@ -186,7 +163,7 @@
       
       <!-- Brand & Status -->
       <div class="flex items-center gap-3.5">
-        <div class="relative group cursor-pointer" onclick="fetchState()">
+        <div class="relative group cursor-pointer" onclick="fetchState()" title="Cliquez pour actualiser immédiatement">
           <div class="w-11 h-11 rounded-2xl bg-gradient-to-tr from-brand-600 via-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-brand-500/25 ring-1 ring-white/20 transition-transform duration-300 group-hover:scale-105 active:scale-95">
             <span class="text-2xl filter drop-shadow">🎴</span>
           </div>
@@ -201,7 +178,7 @@
               <span>WikiMasters</span>
               <span class="bg-gradient-to-r from-brand-400 to-indigo-400 bg-clip-text text-transparent">Fleet Pro</span>
             </h1>
-            <span id="versionBadge" class="text-[10px] font-mono font-bold bg-slate-900/90 text-brand-300 px-2 py-0.5 rounded-full border border-brand-500/30 shadow-sm">v2.7.1</span>
+            <span id="versionBadge" class="text-[10px] font-mono font-bold bg-slate-900/90 text-brand-300 px-2 py-0.5 rounded-full border border-brand-500/30 shadow-sm">v2.7.2</span>
           </div>
           <div class="flex items-center gap-2 mt-0.5 text-xs text-slate-400">
             <span class="inline-flex items-center gap-1.5 text-emerald-400 font-semibold text-[11px]">
@@ -260,21 +237,26 @@
           <span class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping"></span>
         </button>
 
+        <!-- Refresh All Button -->
+        <button onclick="refreshAll()" title="Tout Actualiser (Touche R)" class="p-2.5 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl border border-white/10 transition-all active:scale-95">
+          <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+        </button>
+
         <!-- Pause / Resume Toggle -->
-        <button id="btnPause" onclick="togglePause()" class="flex items-center gap-2 px-3.5 py-2.5 bg-slate-900/90 hover:bg-slate-800 text-slate-200 rounded-xl text-xs font-semibold border border-white/10 transition-all active:scale-95">
+        <button id="btnPause" onclick="togglePause()" title="Mettre en Pause / Reprendre (Touche P)" class="flex items-center gap-2 px-3.5 py-2.5 bg-slate-900/90 hover:bg-slate-800 text-slate-200 rounded-xl text-xs font-semibold border border-white/10 transition-all active:scale-95">
           <i id="pauseIcon" data-lucide="pause" class="w-4 h-4 text-slate-400"></i>
           <span id="pauseText">Pause</span>
         </button>
 
         <!-- Navigation Hub Icons -->
         <div class="flex items-center gap-1 bg-slate-950/70 p-1 rounded-xl border border-white/5">
-          <button onclick="openModal('modalTransfer')" title="Dons & Transferts Groupés" class="p-2 hover:bg-emerald-950/60 text-slate-400 hover:text-emerald-400 rounded-lg transition-colors">
+          <button onclick="openModal('modalTransfer')" title="Dons & Transferts Groupés (Touche T)" class="p-2 hover:bg-emerald-950/60 text-slate-400 hover:text-emerald-400 rounded-lg transition-colors">
             <i data-lucide="gift" class="w-4 h-4"></i>
           </button>
           <button onclick="openModal('modalTop10')" title="Top 10 des Cartes de la Flotte" class="p-2 hover:bg-purple-950/60 text-slate-400 hover:text-purple-400 rounded-lg transition-colors">
             <i data-lucide="trophy" class="w-4 h-4"></i>
           </button>
-          <button onclick="openModal('modalFleetStats')" title="Statistiques & Historique des Tirages" class="p-2 hover:bg-sky-950/60 text-slate-400 hover:text-sky-400 rounded-lg transition-colors">
+          <button onclick="openModal('modalFleetStats')" title="Statistiques & Historique des Tirages (Touche S)" class="p-2 hover:bg-sky-950/60 text-slate-400 hover:text-sky-400 rounded-lg transition-colors">
             <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
           </button>
           <button onclick="syncFriends()" title="Interconnecter la flotte d'amis" class="p-2 hover:bg-indigo-950/60 text-slate-400 hover:text-indigo-400 rounded-lg transition-colors">
@@ -288,6 +270,9 @@
           </button>
           <button onclick="openModal('modalAddAccount')" title="Ajouter un compte" class="p-2 hover:bg-brand-950/60 text-slate-400 hover:text-brand-400 rounded-lg transition-colors">
             <i data-lucide="user-plus" class="w-4 h-4"></i>
+          </button>
+          <button onclick="openModal('modalShortcuts')" title="Raccourcis Clavier (?)" class="p-2 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded-lg transition-colors">
+            <i data-lucide="keyboard" class="w-4 h-4"></i>
           </button>
         </div>
 
@@ -382,10 +367,10 @@
     <div class="max-w-7xl mx-auto px-4 flex flex-wrap items-center justify-between gap-4">
       <div class="flex items-center gap-2">
         <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-        <span>WikiMasters Auto-Claim Engine v2.7.1</span>
+        <span>WikiMasters Auto-Claim Engine v2.7.2</span>
       </div>
       <div>
-        Design & Moteur Synchronisé • Paire Desktop & Web
+        Design & Moteur Synchronisé • Raccourcis Clavier disponibles (touche ?)
       </div>
     </div>
   </footer>
@@ -410,9 +395,16 @@
         </button>
       </div>
 
-      <!-- Account Filter Tabs -->
-      <div id="top10Tabs" class="flex gap-2 p-3 border-b border-white/5 bg-slate-950/40 overflow-x-auto">
-        <!-- Tabs ajoutés dynamiquement -->
+      <!-- Account Filter & Search Bar -->
+      <div class="flex flex-wrap items-center justify-between p-3 border-b border-white/5 bg-slate-950/40 gap-3">
+        <div id="top10Tabs" class="flex gap-2 overflow-x-auto">
+          <!-- Tabs ajoutés dynamiquement -->
+        </div>
+
+        <div class="relative">
+          <i data-lucide="search" class="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2"></i>
+          <input type="text" id="top10SearchInput" oninput="filterTop10Realtime()" placeholder="Rechercher une carte…" class="pl-8 pr-3 py-1 bg-slate-900 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 w-44">
+        </div>
       </div>
 
       <!-- Cards Grid -->
@@ -677,11 +669,60 @@
     </div>
   </div>
 
+  <!-- Raccourcis Clavier Modal (NEW) -->
+  <div id="modalShortcuts" class="fixed inset-0 z-50 hidden bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="modal-content-anim glass-panel rounded-3xl w-full max-w-md shadow-2xl overflow-hidden border border-white/10">
+      <div class="flex items-center justify-between p-5 border-b border-white/10 bg-slate-950/60">
+        <div class="flex items-center gap-3">
+          <div class="p-2.5 rounded-2xl bg-indigo-950/60 text-indigo-400 border border-indigo-800/40 shadow-glow-indigo">
+            <i data-lucide="keyboard" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 class="font-extrabold text-base text-white">Raccourcis Clavier</h3>
+            <p class="text-xs text-slate-400">Contrôlez votre flotte à la vitesse de l'éclair</p>
+          </div>
+        </div>
+        <button onclick="closeModal('modalShortcuts')" class="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-6 space-y-3">
+        <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/60 border border-white/5">
+          <span class="text-xs text-slate-300">Tirer tous les comptes</span>
+          <kbd class="px-2.5 py-1 bg-slate-900 border border-white/10 rounded-lg text-xs font-mono font-bold text-brand-300">Espace</kbd>
+        </div>
+        <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/60 border border-white/5">
+          <span class="text-xs text-slate-300">Mettre en pause / Reprendre</span>
+          <kbd class="px-2.5 py-1 bg-slate-900 border border-white/10 rounded-lg text-xs font-mono font-bold text-slate-300">P</kbd>
+        </div>
+        <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/60 border border-white/5">
+          <span class="text-xs text-slate-300">Tout actualiser</span>
+          <kbd class="px-2.5 py-1 bg-slate-900 border border-white/10 rounded-lg text-xs font-mono font-bold text-slate-300">R</kbd>
+        </div>
+        <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/60 border border-white/5">
+          <span class="text-xs text-slate-300">Ouvrir Dons & Transferts</span>
+          <kbd class="px-2.5 py-1 bg-slate-900 border border-white/10 rounded-lg text-xs font-mono font-bold text-slate-300">T</kbd>
+        </div>
+        <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/60 border border-white/5">
+          <span class="text-xs text-slate-300">Statistiques de Flotte</span>
+          <kbd class="px-2.5 py-1 bg-slate-900 border border-white/10 rounded-lg text-xs font-mono font-bold text-slate-300">S</kbd>
+        </div>
+        <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/60 border border-white/5">
+          <span class="text-xs text-slate-300">Fermer toute fenêtre modale</span>
+          <kbd class="px-2.5 py-1 bg-slate-900 border border-white/10 rounded-lg text-xs font-mono font-bold text-slate-300">Échap</kbd>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Card Lightbox Modal -->
   <div id="modalLightbox" class="fixed inset-0 z-50 hidden bg-black/85 backdrop-blur-xl flex items-center justify-center p-4" onclick="closeModal('modalLightbox')">
     <div class="modal-content-anim glass-panel rounded-3xl p-6 max-w-sm w-full text-center space-y-4 border border-white/10 card-shine shadow-2xl" onclick="event.stopPropagation()">
       <div id="lightboxRarityBadge" class="inline-block px-3.5 py-1 rounded-full text-xs font-extrabold font-mono shadow-md"></div>
       
+      <div id="lightboxStars" class="text-amber-400 text-sm tracking-widest"></div>
+
       <div class="relative w-52 h-72 mx-auto rounded-2xl overflow-hidden border border-white/15 shadow-2xl bg-slate-950 flex items-center justify-center group/lightbox">
         <img id="lightboxImg" src="" alt="Carte" class="w-full h-full object-cover transition-transform duration-500 group-hover/lightbox:scale-105">
       </div>
@@ -691,12 +732,16 @@
         <p id="lightboxSubtitle" class="text-xs text-slate-400 mt-1"></p>
       </div>
 
-      <div class="pt-2 flex items-center justify-center gap-3">
+      <div class="pt-2 flex items-center justify-center gap-2 flex-wrap">
+        <button onclick="copyCurrentCardTitle()" title="Copier le nom de la carte" class="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5">
+          <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+          <span>Copier</span>
+        </button>
         <a id="lightboxWikiBtn" href="#" target="_blank" rel="noopener noreferrer" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-brand-300 hover:text-brand-200 border border-slate-700/80 rounded-xl text-xs font-bold transition-colors inline-flex items-center gap-1.5">
           <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
           <span>Wikipédia</span>
         </a>
-        <button onclick="closeModal('modalLightbox')" class="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition-colors">
+        <button onclick="closeModal('modalLightbox')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition-colors">
           Fermer
         </button>
       </div>
@@ -712,7 +757,11 @@
       logs: [],
       sound_enabled: true,
       log_filter: 'all',
-      log_search: ''
+      log_search: '',
+      top10_data: {},
+      top10_current_acc: null,
+      top10_search: '',
+      current_lightbox_title: ''
     };
 
     // ─── Floating Toast Notification Engine ───
@@ -776,6 +825,20 @@
             osc.start(now + idx * 0.08);
             osc.stop(now + idx * 0.08 + 0.35);
           });
+        } else if (type === 'celebration') {
+          // Major 7th arpeggio celebration
+          [523.25, 659.25, 783.99, 987.77, 1046.50].forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(freq, now + idx * 0.07);
+            gain.gain.setValueAtTime(0.14, now + idx * 0.07);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.07 + 0.45);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + idx * 0.07);
+            osc.stop(now + idx * 0.07 + 0.45);
+          });
         } else if (type === 'alert') {
           // Warning chime
           const osc = ctx.createOscillator();
@@ -795,12 +858,12 @@
 
     // ─── Palette des Raretés WikiMasters ───
     const RARITY_COLORS = {
-      'L':  { bg: 'bg-rose-950/80', text: 'text-rose-300', border: 'border-rose-500/50 shadow-glow-rose', badge: 'bg-gradient-to-r from-rose-600 to-pink-600 text-white', label: 'Légendaire' },
-      'UR': { bg: 'bg-amber-950/80', text: 'text-amber-300', border: 'border-amber-500/50 shadow-glow-amber', badge: 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 font-black', label: 'Ultra Rare' },
-      'SR': { bg: 'bg-purple-950/80', text: 'text-purple-300', border: 'border-purple-500/50 shadow-glow-purple', badge: 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white', label: 'Super Rare' },
-      'R':  { bg: 'bg-blue-950/80', text: 'text-blue-300', border: 'border-blue-500/40 shadow-glow-indigo', badge: 'bg-gradient-to-r from-blue-600 to-sky-600 text-white', label: 'Rare' },
-      'PC': { bg: 'bg-teal-950/80', text: 'text-teal-300', border: 'border-teal-500/40 shadow-glow-emerald', badge: 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white', label: 'Peu Commune' },
-      'C':  { bg: 'bg-slate-900', text: 'text-slate-400', border: 'border-slate-700/40', badge: 'bg-slate-700 text-white', label: 'Commune' },
+      'L':  { bg: 'bg-rose-950/80', text: 'text-rose-300', border: 'border-rose-500/50 shadow-glow-rose', badge: 'bg-gradient-to-r from-rose-600 to-pink-600 text-white', label: 'Légendaire', stars: '⭐⭐⭐⭐⭐' },
+      'UR': { bg: 'bg-amber-950/80', text: 'text-amber-300', border: 'border-amber-500/50 shadow-glow-amber', badge: 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 font-black', label: 'Ultra Rare', stars: '⭐⭐⭐⭐' },
+      'SR': { bg: 'bg-purple-950/80', text: 'text-purple-300', border: 'border-purple-500/50 shadow-glow-purple', badge: 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white', label: 'Super Rare', stars: '⭐⭐⭐' },
+      'R':  { bg: 'bg-blue-950/80', text: 'text-blue-300', border: 'border-blue-500/40 shadow-glow-indigo', badge: 'bg-gradient-to-r from-blue-600 to-sky-600 text-white', label: 'Rare', stars: '⭐⭐' },
+      'PC': { bg: 'bg-teal-950/80', text: 'text-teal-300', border: 'border-teal-500/40 shadow-glow-emerald', badge: 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white', label: 'Peu Commune', stars: '⭐' },
+      'C':  { bg: 'bg-slate-900', text: 'text-slate-400', border: 'border-slate-700/40', badge: 'bg-slate-700 text-white', label: 'Commune', stars: '·' },
     };
 
     // Formatage MM:SS
@@ -864,6 +927,30 @@
       }
 
       lucide.createIcons();
+      init3DCardTilt();
+    }
+
+    // ─── 3D Card Perspective Tilt Effect ───
+    function init3DCardTilt() {
+      document.querySelectorAll('.card-shine').forEach(card => {
+        if (card.dataset.tiltInit) return;
+        card.dataset.tiltInit = "true";
+
+        card.addEventListener('mousemove', (e) => {
+          const rect = card.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          const cx = rect.width / 2;
+          const cy = rect.height / 2;
+          const dx = (x - cx) / cx;
+          const dy = (y - cy) / cy;
+          card.style.transform = `perspective(600px) rotateY(${dx * 14}deg) rotateX(${-dy * 14}deg) scale3d(1.08, 1.08, 1.08)`;
+        });
+
+        card.addEventListener('mouseleave', () => {
+          card.style.transform = 'perspective(600px) rotateY(0deg) rotateX(0deg) scale3d(1, 1, 1)';
+        });
+      });
     }
 
     // ─── Rendu des Cartes de Comptes ───
@@ -873,7 +960,9 @@
 
       state.accounts.forEach((acc, idx) => {
         const cardEl = document.createElement('div');
-        cardEl.className = "glass-card rounded-3xl p-5 shadow-2xl flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 relative overflow-hidden group";
+        const isPulling = acc.is_claiming === true;
+
+        cardEl.className = `glass-card rounded-3xl p-5 shadow-2xl flex flex-col justify-between transition-all duration-300 relative overflow-hidden group ${isPulling ? 'ring-2 ring-brand-400 shadow-glow-cyan animate-pulse' : 'hover:-translate-y-1'}`;
 
         // Donut SVG circumference calculation
         const radius = 38;
@@ -922,7 +1011,7 @@
             const title = c.wikipedia_title || c.title || 'Carte';
             const img = c.image_url || '';
             cardsHtml += `
-              <div onclick='openLightbox(${JSON.stringify(c)})' title="${title} (${rCfg.label})" class="relative w-12 h-16 rounded-xl overflow-hidden border ${rCfg.border} bg-slate-950 cursor-pointer card-shine group/card flex-shrink-0 transition-transform duration-200 hover:scale-110 shadow-lg">
+              <div onclick='openLightbox(${JSON.stringify(c)})' title="${title} (${rCfg.label})" class="relative w-12 h-16 rounded-xl overflow-hidden border ${rCfg.border} bg-slate-950 cursor-pointer card-shine group/card flex-shrink-0 shadow-lg">
                 ${img ? `<img src="${img}" class="w-full h-full object-cover">` : `<div class="w-full h-full flex items-center justify-center text-[10px] text-slate-500 font-bold">${r}</div>`}
                 <span class="absolute bottom-0 inset-x-0 text-[8px] font-mono font-bold text-center ${rCfg.badge} py-0.5 tracking-tighter">${r}</span>
               </div>
@@ -955,6 +1044,22 @@
             <button onclick="resolveCaptcha('${acc.id}')" class="px-3.5 py-2 bg-gradient-to-r from-purple-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white rounded-xl text-xs font-black shadow-lg shadow-purple-950 flex items-center gap-1.5 transition-all active:scale-95 animate-pulse">
               <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i>
               <span>🛠️ Résoudre</span>
+            </button>
+          `;
+        }
+
+        // Claim button
+        let claimBtnHtml = `
+          <button onclick="claimSingle('${acc.id}')" class="flex-1 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-lg shadow-brand-950 flex items-center justify-center gap-1.5 border border-brand-400/20">
+            <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+            <span>Tirer</span>
+          </button>
+        `;
+        if (isPulling) {
+          claimBtnHtml = `
+            <button disabled class="flex-1 py-2 bg-gradient-to-r from-sky-700 to-indigo-700 text-brand-100 rounded-xl text-xs font-bold shadow-lg flex items-center justify-center gap-1.5 cursor-wait opacity-90">
+              <i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i>
+              <span>Tirage…</span>
             </button>
           `;
         }
@@ -1009,8 +1114,13 @@
                 </defs>
               </svg>
               <div class="absolute inset-0 flex flex-col items-center justify-center text-center">
-                <span class="font-mono font-extrabold text-sm text-white tabular-nums">${formatTime(leftSec)}</span>
-                <span class="text-[8px] text-slate-400 font-extrabold tracking-wider mt-0.5">${leftSec === 0 ? 'PRÊT !' : 'ATTENTE'}</span>
+                ${isPulling ? `
+                  <div class="animate-spin text-brand-300 text-lg mb-0.5"><i data-lucide="loader-2" class="w-5 h-5"></i></div>
+                  <span class="text-[8px] text-brand-300 font-extrabold tracking-wider">TIRAGE…</span>
+                ` : `
+                  <span class="font-mono font-extrabold text-sm text-white tabular-nums">${formatTime(leftSec)}</span>
+                  <span class="text-[8px] text-slate-400 font-extrabold tracking-wider mt-0.5">${leftSec === 0 ? 'PRÊT !' : 'ATTENTE'}</span>
+                `}
               </div>
             </div>
 
@@ -1046,11 +1156,7 @@
           <!-- Bottom Action Buttons -->
           <div class="flex items-center gap-2 pt-3 border-t border-white/5">
             ${setupBtn}
-
-            <button onclick="claimSingle('${acc.id}')" class="flex-1 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-lg shadow-brand-950 flex items-center justify-center gap-1.5 border border-brand-400/20">
-              <i data-lucide="zap" class="w-3.5 h-3.5"></i>
-              <span>Tirer</span>
-            </button>
+            ${claimBtnHtml}
 
             <button onclick="refreshSingle('${acc.id}')" title="Actualiser la session" class="p-2 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl border border-white/10 transition-colors">
               <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
@@ -1110,7 +1216,7 @@
 
     async function claimAll() {
       playChime('pull');
-      showToast("Lancement du tirage sur tous les comptes en parallèle…", "info");
+      showToast("⚡ Tirage simultané lancé sur tous les comptes !", "info");
       await fetch('/api/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1125,6 +1231,15 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ account_id: accountId })
+      });
+    }
+
+    async function refreshAll() {
+      showToast("↻ Actualisation de toute la flotte en cours…", "info");
+      await fetch('/api/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: 'all' })
       });
     }
 
@@ -1218,33 +1333,50 @@
     async function loadTop10() {
       const res = await fetch('/api/best_cards');
       if (!res.ok) return;
-      const data = await res.json();
+      state.top10_data = await res.json();
       
       const tabs = document.getElementById('top10Tabs');
       tabs.innerHTML = '';
-      const accounts = Object.keys(data);
-      if (!accounts.length) return;
+      const accounts = Object.keys(state.top10_data);
+      if (!accounts.length) {
+        renderTop10Cards([]);
+        return;
+      }
+
+      state.top10_current_acc = accounts[0];
 
       accounts.forEach((accId, idx) => {
         const btn = document.createElement('button');
         btn.className = `px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${idx === 0 ? 'bg-purple-600 text-white shadow-glow-purple' : 'bg-slate-900 text-slate-300 hover:bg-slate-800'}`;
         btn.innerText = accId;
         btn.onclick = () => {
+          state.top10_current_acc = accId;
           Array.from(tabs.children).forEach(c => c.className = 'px-3.5 py-1.5 rounded-xl text-xs font-bold bg-slate-900 text-slate-300 hover:bg-slate-800');
           btn.className = 'px-3.5 py-1.5 rounded-xl text-xs font-bold bg-purple-600 text-white shadow-glow-purple';
-          renderTop10Cards(data[accId] || []);
+          filterTop10Realtime();
         };
         tabs.appendChild(btn);
       });
 
-      renderTop10Cards(data[accounts[0]] || []);
+      filterTop10Realtime();
+    }
+
+    function filterTop10Realtime() {
+      const search = (document.getElementById('top10SearchInput').value || '').toLowerCase();
+      const accId = state.top10_current_acc;
+      const allCards = state.top10_data[accId] || [];
+      const filtered = allCards.filter(c => {
+        const title = (c.wikipedia_title || c.title || '').toLowerCase();
+        return !search || title.includes(search);
+      });
+      renderTop10Cards(filtered);
     }
 
     function renderTop10Cards(cards) {
       const grid = document.getElementById('top10Grid');
       grid.innerHTML = '';
       if (!cards.length) {
-        grid.innerHTML = '<div class="col-span-full text-center text-xs text-slate-500 py-12">Aucune carte enregistrée dans le Top 10 pour le moment.</div>';
+        grid.innerHTML = '<div class="col-span-full text-center text-xs text-slate-500 py-12">Aucune carte trouvée pour ce compte.</div>';
         return;
       }
       cards.forEach(c => {
@@ -1253,7 +1385,7 @@
         const title = c.wikipedia_title || c.title || 'Carte';
         const img = c.image_url || '';
         const el = document.createElement('div');
-        el.className = `p-3 rounded-2xl border ${rCfg.border} bg-slate-950/60 card-shine flex flex-col items-center text-center space-y-2 cursor-pointer transition-all hover:scale-105 shadow-xl`;
+        el.className = `p-3 rounded-2xl border ${rCfg.border} bg-slate-950/60 card-shine flex flex-col items-center text-center space-y-2 cursor-pointer transition-all shadow-xl`;
         el.onclick = () => openLightbox(c);
         el.innerHTML = `
           <div class="relative w-24 h-32 rounded-xl overflow-hidden bg-slate-950 border border-white/10 shadow-lg">
@@ -1264,6 +1396,7 @@
         `;
         grid.appendChild(el);
       });
+      init3DCardTilt();
     }
 
     // ─── Modal Fleet Stats & Historique ───
@@ -1291,19 +1424,19 @@
         kpi.innerHTML = `
           <div class="p-4 rounded-2xl bg-slate-950/80 border border-white/5">
             <div class="text-[10px] text-slate-400 font-bold uppercase">Total Paquets Ouverts</div>
-            <div class="text-xl font-black text-amber-400 font-mono mt-1">${totalPacks.toLocaleString()}</div>
+            <div class="text-xl font-black text-amber-400 font-mono mt-1 tabular-nums">${totalPacks.toLocaleString()}</div>
           </div>
           <div class="p-4 rounded-2xl bg-slate-950/80 border border-white/5">
             <div class="text-[10px] text-slate-400 font-bold uppercase">Collection Cartes</div>
-            <div class="text-xl font-black text-emerald-400 font-mono mt-1">${totalCards.toLocaleString()}</div>
+            <div class="text-xl font-black text-emerald-400 font-mono mt-1 tabular-nums">${totalCards.toLocaleString()}</div>
           </div>
           <div class="p-4 rounded-2xl bg-slate-950/80 border border-white/5">
             <div class="text-[10px] text-slate-400 font-bold uppercase">Cartes d'Élite (L / UR)</div>
-            <div class="text-xl font-black text-purple-400 font-mono mt-1">${(rarityTotals['L'] + rarityTotals['UR']).toLocaleString()}</div>
+            <div class="text-xl font-black text-purple-400 font-mono mt-1 tabular-nums">${(rarityTotals['L'] + rarityTotals['UR']).toLocaleString()}</div>
           </div>
           <div class="p-4 rounded-2xl bg-slate-950/80 border border-white/5">
             <div class="text-[10px] text-slate-400 font-bold uppercase">Comptes Opérationnels</div>
-            <div class="text-xl font-black text-sky-400 font-mono mt-1">${state.accounts.length}</div>
+            <div class="text-xl font-black text-sky-400 font-mono mt-1 tabular-nums">${state.accounts.length}</div>
           </div>
         `;
 
@@ -1321,7 +1454,7 @@
                 <span class="font-bold flex items-center gap-1.5 ${rCfg.text}">
                   <span>${rCfg.label} (${r})</span>
                 </span>
-                <span class="font-mono text-slate-400">${count.toLocaleString()} (${pct}%)</span>
+                <span class="font-mono text-slate-400 tabular-nums">${count.toLocaleString()} (${pct}%)</span>
               </div>
               <div class="w-full h-2 rounded-full bg-slate-900 overflow-hidden">
                 <div class="h-full rounded-full ${rCfg.badge} transition-all duration-500" style="width: ${Math.max(1, pct)}%"></div>
@@ -1437,10 +1570,34 @@
       document.getElementById(id).classList.add('hidden');
     }
 
-    // Close on Escape key
+    // ─── Keyboard Hotkeys (Espace, P, R, T, S, ?, Echap) ───
     window.addEventListener('keydown', (e) => {
+      // Ignorer si l'utilisateur est en train de saisir dans un champ texte
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+        if (e.key === 'Escape') document.activeElement.blur();
+        return;
+      }
+
       if (e.key === 'Escape') {
-        ['modalTop10', 'modalFleetStats', 'modalTransfer', 'modalGuild', 'modalDiscord', 'modalAddAccount', 'modalLightbox'].forEach(closeModal);
+        ['modalTop10', 'modalFleetStats', 'modalTransfer', 'modalGuild', 'modalDiscord', 'modalAddAccount', 'modalLightbox', 'modalShortcuts'].forEach(closeModal);
+      } else if (e.code === 'Space') {
+        e.preventDefault();
+        claimAll();
+      } else if (e.key === 'p' || e.key === 'P') {
+        e.preventDefault();
+        togglePause();
+      } else if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        refreshAll();
+      } else if (e.key === 't' || e.key === 'T') {
+        e.preventDefault();
+        openModal('modalTransfer');
+      } else if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        openModal('modalFleetStats');
+      } else if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault();
+        openModal('modalShortcuts');
       }
     });
 
@@ -1448,13 +1605,19 @@
     function openLightbox(c) {
       const r = c.rarity || 'C';
       const rCfg = RARITY_COLORS[r] || RARITY_COLORS['C'];
+      const title = c.wikipedia_title || c.title || 'Carte WikiMasters';
+      state.current_lightbox_title = title;
+
       document.getElementById('lightboxImg').src = c.image_url || '';
-      document.getElementById('lightboxTitle').innerText = c.wikipedia_title || c.title || 'Carte WikiMasters';
+      document.getElementById('lightboxTitle').innerText = title;
       document.getElementById('lightboxSubtitle').innerText = `${rCfg.label} • Rareté ${r}`;
       
       const badge = document.getElementById('lightboxRarityBadge');
       badge.className = `inline-block px-3.5 py-1 rounded-full text-xs font-extrabold font-mono ${rCfg.badge}`;
       badge.innerText = rCfg.label;
+
+      const stars = document.getElementById('lightboxStars');
+      stars.innerText = rCfg.stars || '';
 
       const wikiBtn = document.getElementById('lightboxWikiBtn');
       const wTitle = c.wikipedia_title || c.title || '';
@@ -1466,6 +1629,13 @@
       }
 
       openModal('modalLightbox');
+    }
+
+    function copyCurrentCardTitle() {
+      if (state.current_lightbox_title) {
+        navigator.clipboard.writeText(state.current_lightbox_title);
+        showToast(`"${state.current_lightbox_title}" copié dans le presse-papier !`, "success");
+      }
     }
 
     // ─── Filtrage Console ───
@@ -1522,8 +1692,15 @@
             state.logs.push(data);
             if (state.logs.length > 200) state.logs.shift();
             renderLogs(state.logs);
-            if (data.level === 'success') playChime('success');
-            else if (data.level === 'error' || data.level === 'warning') playChime('alert');
+            
+            const msg = (data.message || '').toLowerCase();
+            if (msg.includes('légendaire') || msg.includes('ultra rare') || msg.includes(' ur ') || msg.includes(' l ')) {
+              playChime('celebration');
+            } else if (data.level === 'success') {
+              playChime('success');
+            } else if (data.level === 'error' || data.level === 'warning') {
+              playChime('alert');
+            }
           } catch(err) {}
         });
       } catch(err) {
