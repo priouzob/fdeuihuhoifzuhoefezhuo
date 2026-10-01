@@ -1299,25 +1299,27 @@ def get_browser_launch_args(account_id=None):
     ]
 
 def sanitize_window_placement(p_dir):
-    """Corrige les coordonnées d'affichage corrompues (-32000) dans Preferences pour garantir que la fenêtre apparaît au centre de l'écran."""
+    """Corrige les coordonnées d'affichage dans Preferences pour garantir que la fenêtre apparaît au centre de l'écran visible."""
     try:
         pref_file = Path(p_dir) / "Default" / "Preferences"
         if pref_file.exists():
             with open(pref_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            wp = data.get("browser", {}).get("window_placement")
-            if wp and isinstance(wp, dict):
-                if wp.get("left", 0) < -1000 or wp.get("top", 0) < -1000 or wp.get("right", 0) <= 0:
-                    wp["left"] = 100
-                    wp["top"] = 60
-                    wp["right"] = 1380
-                    wp["bottom"] = 910
-                    wp["work_area_bottom"] = 1040
-                    wp["work_area_left"] = 0
-                    wp["work_area_right"] = 1920
-                    wp["work_area_top"] = 0
-                    with open(pref_file, "w", encoding="utf-8") as f:
-                        json.dump(data, f)
+            if "browser" not in data or not isinstance(data["browser"], dict):
+                data["browser"] = {}
+            data["browser"]["window_placement"] = {
+                "bottom": 910,
+                "left": 100,
+                "maximized": False,
+                "right": 1380,
+                "top": 60,
+                "work_area_bottom": 1080,
+                "work_area_left": 0,
+                "work_area_right": 1920,
+                "work_area_top": 0
+            }
+            with open(pref_file, "w", encoding="utf-8") as f:
+                json.dump(data, f)
     except Exception:
         pass
 
@@ -2086,7 +2088,7 @@ def setup_account(account_id, start_url="https://www.wiki-masters.com/login", st
             )
             _active_setup_context = context
             apply_stealth(context)
-            page = context.pages[0] if context.pages else context.new_page()
+            page = enforce_single_page(context)
 
             # Restauration automatique au cas où une session précédente existe
             restore_session_to_context(context, page, account_id)
@@ -2189,14 +2191,18 @@ def force_window_to_foreground(hwnd):
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
 
-        class _RECT(ctypes.Structure):
-            _fields_ = [('left', ctypes.c_long), ('top', ctypes.c_long), ('right', ctypes.c_long), ('bottom', ctypes.c_long)]
+        if not user32.IsWindow(hwnd):
+            return False
 
-        # 1. Vérifier si la fenêtre est déportée hors-écran (ex: -32000) et la replacer
-        rect = _RECT()
-        user32.GetWindowRect(hwnd, ctypes.byref(rect))
-        if rect.left < -500 or rect.top < -500 or (rect.right - rect.left) < 100 or (rect.bottom - rect.top) < 100:
-            user32.MoveWindow(hwnd, 100, 60, 1280, 850, True)
+        # 1. Déverrouiller le foreground au niveau de l'OS (Windows 10/11)
+        try:
+            user32.LockSetForegroundWindow(2)  # LSFW_UNLOCK
+        except Exception:
+            pass
+        try:
+            user32.AllowSetForegroundWindow(-1)  # ASFW_ANY
+        except Exception:
+            pass
 
         # 2. Restaurer la fenêtre si elle est minimisée
         if user32.IsIconic(hwnd):
@@ -2204,38 +2210,21 @@ def force_window_to_foreground(hwnd):
         else:
             user32.ShowWindow(hwnd, 5)  # SW_SHOW
 
-        # 3. AttachThreadInput pour contourner le verrouillage de focus de Windows
-        fg_hwnd = user32.GetForegroundWindow()
-        cur_tid = kernel32.GetCurrentThreadId()
-        fg_tid = user32.GetWindowThreadProcessId(fg_hwnd, None) if fg_hwnd else 0
-        target_tid = user32.GetWindowThreadProcessId(hwnd, None)
+        # 3. Forcer le positionnement visible et au premier plan (TOPMOST puis NOTOPMOST)
+        HWND_TOPMOST = -1
+        HWND_NOTOPMOST = -2
+        SWP_SHOWWINDOW = 0x0040
+        user32.SetWindowPos(hwnd, HWND_TOPMOST, 100, 60, 1280, 850, SWP_SHOWWINDOW)
+        time.sleep(0.04)
+        user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 100, 60, 1280, 850, SWP_SHOWWINDOW)
 
-        if fg_tid and fg_tid != cur_tid:
-            user32.AttachThreadInput(cur_tid, fg_tid, True)
-        if target_tid and target_tid != cur_tid:
-            user32.AttachThreadInput(cur_tid, target_tid, True)
-
-        # 4. Simuler une touche système pour satisfaire la condition Windows
+        # 4. Simuler une touche système pour contourner la restriction de focus Windows
         user32.keybd_event(0x12, 0, 0, 0)  # VK_MENU down
         user32.keybd_event(0x12, 0, 2, 0)  # VK_MENU up
 
-        # 5. SetWindowPos avec HWND_TOPMOST puis HWND_NOTOPMOST pour forcer le dessus de la pile Z-Order
-        HWND_TOPMOST = -1
-        HWND_NOTOPMOST = -2
-        SWP_NOMOVE = 0x0002
-        SWP_NOSIZE = 0x0001
-        SWP_SHOWWINDOW = 0x0040
-        user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
-        user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
-
         user32.BringWindowToTop(hwnd)
         user32.SetForegroundWindow(hwnd)
-
-        # 6. Détacher les threads
-        if fg_tid and fg_tid != cur_tid:
-            user32.AttachThreadInput(cur_tid, fg_tid, False)
-        if target_tid and target_tid != cur_tid:
-            user32.AttachThreadInput(cur_tid, target_tid, False)
+        user32.SetActiveWindow(hwnd)
 
         return True
     except Exception:
@@ -2272,24 +2261,29 @@ def find_hwnds_for_account(account_id):
 
         def enum_cb(hwnd, extra):
             if user32.IsWindowVisible(hwnd):
-                length = user32.GetWindowTextLengthW(hwnd)
-                if length > 0:
+                buff_cls = ctypes.create_unicode_buffer(256)
+                user32.GetClassNameW(hwnd, buff_cls, 256)
+                cls_name = buff_cls.value
+                # Seules les fenêtres principales Chromium sont de classe Chrome_WidgetWin_1
+                if cls_name == "Chrome_WidgetWin_1":
                     rect = _RECT()
                     user32.GetWindowRect(hwnd, ctypes.byref(rect))
                     w = rect.right - rect.left
                     h = rect.bottom - rect.top
-                    # Ignorer les fenêtres miniatures ou déportées hors de l'écran visible
-                    if w > 200 and h > 200 and rect.left > -500 and rect.top > -500:
+                    # Ignorer les fenêtres miniatures ou invisibles
+                    if w >= 400 and h >= 300:
                         pid = ctypes.c_ulong()
                         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
                         if pid.value in pids:
                             hwnds.append(hwnd)
                         else:
-                            buff = ctypes.create_unicode_buffer(length + 1)
-                            user32.GetWindowTextW(hwnd, buff, length + 1)
-                            t = buff.value.lower()
-                            if f"wikimasters_{target_key}" in t or ("wikimasters" in t and target_key in t):
-                                hwnds.append(hwnd)
+                            length = user32.GetWindowTextLengthW(hwnd)
+                            if length > 0:
+                                buff = ctypes.create_unicode_buffer(length + 1)
+                                user32.GetWindowTextW(hwnd, buff, length + 1)
+                                t = buff.value.lower()
+                                if f"wikimasters_{target_key}" in t or ("wikimasters" in t and target_key in t):
+                                    hwnds.append(hwnd)
             return True
 
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
@@ -2348,21 +2342,7 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
     b_name = b_info["name"]
     exe_path = find_browser_executable(b_type)
 
-    account_busy = is_account_busy(account_id)
     p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
-
-    # Si le compte est occupé par un tirage headless, utiliser un profil viewer séparé
-    # pour ne pas interférer avec la session Playwright en cours.
-    if account_busy:
-        viewer_dir = BASE_DIR / (acc.get("profile_dir", f"profiles/{account_id}") + "_viewer")
-        viewer_dir.mkdir(parents=True, exist_ok=True)
-        active_p_dir = viewer_dir
-    else:
-        p_dir.mkdir(parents=True, exist_ok=True)
-        active_p_dir = p_dir
-
-    if not os.path.exists(exe_path):
-        return False, f"Exécutable {b_name} ({exe_path}) introuvable."
 
     # 1. Vérifier si une fenêtre pour ce compte est DÉJÀ ouverte
     existing_hwnds = find_hwnds_for_account(account_id)
@@ -2371,10 +2351,51 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
             force_window_to_foreground(h)
         return True, f"Fenêtre {b_name} de {name} déjà ouverte : ramenée au tout premier plan !"
 
-    # 2. Nettoyage uniquement si le compte n'est PAS en train de tirer des cartes
+    # Si le compte est actuellement en tirage, attendre brièvement qu'il termine (jusqu'à 6s)
+    if is_account_busy(account_id):
+        t_wait = time.time() + 6.0
+        while time.time() < t_wait and is_account_busy(account_id):
+            time.sleep(0.4)
+
+    account_busy = is_account_busy(account_id)
+    if account_busy:
+        viewer_dir = BASE_DIR / (acc.get("profile_dir", f"profiles/{account_id}") + "_viewer")
+        viewer_dir.mkdir(parents=True, exist_ok=True)
+        active_p_dir = viewer_dir
+        # Copier la session vers le profil viewer pour rester connecté
+        try:
+            src_def = p_dir / "Default"
+            dst_def = viewer_dir / "Default"
+            dst_def.mkdir(parents=True, exist_ok=True)
+            for sub in ["Network", "Local Storage"]:
+                s = src_def / sub
+                d = dst_def / sub
+                if s.exists() and not d.exists():
+                    import shutil
+                    shutil.copytree(s, d, dirs_exist_ok=True)
+        except Exception:
+            pass
+    else:
+        p_dir.mkdir(parents=True, exist_ok=True)
+        active_p_dir = p_dir
+
+    if not os.path.exists(exe_path):
+        return False, f"Exécutable {b_name} ({exe_path}) introuvable."
+
+    # Nettoyage des verrous et processus résiduels
     if not account_busy:
         kill_browser_processes(account_id)
         clean_profile_locks(account_id, max_wait=1.0)
+
+    # Supprimer les sessions précédentes pour garantir STRICTEMENT 1 seul onglet ouvert
+    sessions_dir = active_p_dir / "Default" / "Sessions"
+    if sessions_dir.exists():
+        try:
+            import shutil
+            shutil.rmtree(sessions_dir, ignore_errors=True)
+        except Exception:
+            pass
+
     sanitize_window_placement(active_p_dir)
 
     resolved_p_dir = str(active_p_dir.resolve())
@@ -2393,36 +2414,35 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
         url
     ]
 
-    creationflags = 0
-    startupinfo = None
-    if sys.platform == "win32":
-        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = 1  # SW_SHOWNORMAL
+    creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
 
     try:
         proc = subprocess.Popen(
             cmd,
             creationflags=creationflags,
-            startupinfo=startupinfo,
             close_fds=True
         )
 
-        # 3. Activation en tâche de fond : attendre que la fenêtre soit créée puis la forcer au premier plan
+        # Attente synchrone et rapide que la fenêtre apparaisse pour la placer immédiatement au premier plan
+        for _ in range(16):
+            time.sleep(0.18)
+            hwnds = find_hwnds_for_account(account_id)
+            if hwnds:
+                for h in hwnds:
+                    force_window_to_foreground(h)
+                break
+
+        # Tâche de fond pour surveiller le focus et sauvegarder la session lors des connexions
         def _activate_bg():
-            # Attendre plus longtemps : Brave et Edge peuvent prendre 3-5s à créer leur fenêtre
-            time.sleep(0.5)
-            for _ in range(40):
-                time.sleep(0.25)
+            for _ in range(25):
+                time.sleep(0.3)
                 if proc.poll() is not None:
-                    break  # Processus terminé prématurément
+                    break
                 hwnds = find_hwnds_for_account(account_id)
                 if hwnds:
                     for h in hwnds:
                         force_window_to_foreground(h)
-                    return
-            # Dernier recours : chercher par titre
+                    break
             bring_chrome_to_foreground("WikiMasters", account_id=account_id)
 
         threading.Thread(target=_activate_bg, daemon=True).start()
@@ -2960,6 +2980,10 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                             pack_cards.append(card_title)
                             pack_rarities.append(card_rarity)
 
+                            # Laisser l'animation 3D de retournement de carte se terminer entièrement
+                            # (l'animation CSS 3D prend ~650ms : 0.85s pour cartes 1-4, 1.0s pour carte 5)
+                            time.sleep(1.0 if card_idx == 4 else 0.85)
+
                             # Capture d'écran individuelle
                             ts_now = datetime.now().strftime("%Y%m%d_%H%M%S")
                             card_shot_path = str(SCREENSHOTS_DIR / f"{account_id}_{ts_now}_p{current_pack_num}_c{card_idx+1}.png")
@@ -3006,6 +3030,8 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                                     time.sleep(0.05)
 
                         # Validation finale du paquet par 'Continuer' sur la carte 5
+                        # Pause de confort pour laisser la 5ème carte affichée de manière stable
+                        time.sleep(0.6)
                         continuer_btn = page.locator("button:has-text('Continuer'):not([disabled]), button.px-8.py-3:not([disabled])").first
                         if continuer_btn.count() > 0 and continuer_btn.is_visible():
                             continuer_btn.click()

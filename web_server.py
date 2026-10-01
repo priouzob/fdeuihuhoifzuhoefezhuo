@@ -260,8 +260,19 @@ def api_open_browser():
     data = request.get_json(silent=True) or {}
     account_id = data.get("account_id")
     start_url = data.get("start_url", "https://wiki-masters.com/pulls")
-    if account_id and _web_bridge:
-        _web_bridge.setup_requested.emit(account_id, start_url)
+    browser_type = data.get("browser_type")
+    if account_id:
+        acc = engine.get_account_info(account_id)
+        name = acc.get("name", account_id)
+        broadcast_log(f"🌐 Lancement du navigateur pour '{name}'...", "info")
+        import threading
+        def _launch():
+            ok, msg = engine.open_account_browser(account_id, url=start_url, browser_type=browser_type)
+            if ok:
+                broadcast_log(f"✓ {msg}", "success")
+            else:
+                broadcast_log(f"✗ {msg}", "error")
+        threading.Thread(target=_launch, daemon=True).start()
         return jsonify({"success": True})
     return jsonify({"success": False}), 400
 

@@ -56,31 +56,53 @@ def resolve_trade_partner(page, target_username):
             let myId = null;
             let method = null;
 
-            // 1. Tenter d'abord de récupérer mon propre ID utilisateur
+            // 1. Tenter de récupérer mon propre ID utilisateur de manière robuste
             try {
-                const rMe = await fetch('/api/guilds');
-                if (rMe.ok) {
-                    const dMe = await rMe.json();
-                    if (dMe?.membership?.user_id) myId = dMe.membership.user_id;
-                    else if ((dMe?.guilds || [])[0]?.membership?.user_id) myId = dMe.guilds[0].membership.user_id;
+                const rUser = await fetch('/api/user');
+                if (rUser.ok) {
+                    const dUser = await rUser.json();
+                    if (dUser?.id) myId = dUser.id;
+                    else if (dUser?.user?.id) myId = dUser.user.id;
                 }
             } catch(e) {}
+            if (!myId) {
+                try {
+                    const rMe = await fetch('/api/guilds');
+                    if (rMe.ok) {
+                        const dMe = await rMe.json();
+                        if (dMe?.membership?.user_id) myId = dMe.membership.user_id;
+                        else if ((dMe?.guilds || [])[0]?.membership?.user_id) myId = dMe.guilds[0].membership.user_id;
+                    }
+                } catch(e) {}
+            }
+            if (!myId) {
+                try {
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const k = localStorage.key(i);
+                        if (k && k.includes('auth-token')) {
+                            const parsed = JSON.parse(localStorage.getItem(k));
+                            if (parsed?.user?.id) myId = parsed.user.id;
+                        }
+                    }
+                } catch(e) {}
+            }
 
             // 2. ÉCHANGE DEPUIS LA GUILDE (/api/guilds/members)
-            // Permet d'échanger avec tous les membres de la guilde, même sans être amis !
+            // Permet d'échanger avec tous les comptes membres de la guilde, même sans être amis !
             try {
                 const rGuild = await fetch('/api/guilds/members');
                 if (rGuild.ok) {
                     const dGuild = await rGuild.json();
-                    const members = dGuild?.members || [];
+                    const members = Array.isArray(dGuild) ? dGuild : (dGuild?.members || dGuild?.data || []);
                     for (const m of members) {
-                        if (m.is_self && !myId) {
-                            myId = m.user_id || m.profile?.id;
-                        }
-                        const uname = (m.profile?.username || '').toLowerCase().trim();
-                        if (uname === clean) {
-                            recipientId = m.user_id || m.profile?.id;
+                        const uId = m.user_id || m.id || m.profile?.id || m.profile_id;
+                        const uName = (m.profile?.username || m.username || m.name || '').toLowerCase().trim();
+                        if (uName === clean && uId) {
+                            recipientId = uId;
                             method = 'guild';
+                        }
+                        if (m.is_self || m.is_me || m.current_user) {
+                            if (!myId && uId) myId = uId;
                         }
                     }
                 }

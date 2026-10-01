@@ -101,20 +101,38 @@ STEALTH_JS = """
     );
 
     // 8. Masquer le renderer WebGL SwiftShader / llvmpipe
-    const getParameterProto = WebGLRenderingContext.prototype.getParameter;
-    WebGLRenderingContext.prototype.getParameter = function(parameter) {
-        if (parameter === 37445) return 'Google Inc. (NVIDIA)';
-        if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0, D3D11)';
-        return getParameterProto.apply(this, arguments);
-    };
-    if (typeof WebGL2RenderingContext !== 'undefined') {
-        const getParameterProto2 = WebGL2RenderingContext.prototype.getParameter;
-        WebGL2RenderingContext.prototype.getParameter = function(parameter) {
+    try {
+        const getParameterProto = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function(parameter) {
             if (parameter === 37445) return 'Google Inc. (NVIDIA)';
             if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0, D3D11)';
-            return getParameterProto2.apply(this, arguments);
+            return getParameterProto.apply(this, arguments);
         };
-    }
+        if (typeof WebGL2RenderingContext !== 'undefined') {
+            const getParameterProto2 = WebGL2RenderingContext.prototype.getParameter;
+            WebGL2RenderingContext.prototype.getParameter = function(parameter) {
+                if (parameter === 37445) return 'Google Inc. (NVIDIA)';
+                if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0, D3D11)';
+                return getParameterProto2.apply(this, arguments);
+            };
+        }
+    } catch (e) {}
+
+    // 9. Interdire strictement l'ouverture de multiples onglets (1 seule page max par instance)
+    try {
+        window.open = function(url) {
+            if (url) {
+                window.location.href = url;
+            }
+            return window;
+        };
+        document.addEventListener('click', function(e) {
+            const a = e.target && e.target.closest ? e.target.closest('a') : null;
+            if (a && a.target === '_blank') {
+                a.target = '_self';
+            }
+        }, true);
+    } catch (e) {}
 })();
 """
 
@@ -137,6 +155,7 @@ def enforce_single_page(context):
 
         def _block_extra_pages(new_page):
             try:
+                time.sleep(0.05)
                 new_page.close()
             except Exception:
                 pass
