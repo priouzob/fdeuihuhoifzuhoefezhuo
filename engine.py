@@ -244,9 +244,12 @@ def clean_profile_locks(browser_key, max_wait=2.5):
     except Exception:
         pass
 
+_running_browser_procs = {}
+
 def kill_browser_processes(browser_key):
     """Ferme proprement et instantanément tout processus résiduel du navigateur pour ce profil avant réouverture."""
     try:
+        _running_browser_procs.pop(browser_key, None)
         import psutil
         target_key = str(browser_key).lower()
         matched_procs = []
@@ -2178,15 +2181,27 @@ def setup_account(account_id, start_url="https://www.wiki-masters.com/login", st
         safe_notify(status_callback, f"Erreur lors de la configuration : {clean_err}", "error")
         return False, clean_err
 
+def _attach_user_desktop():
+    """Attache le thread appelant au bureau interactif principal de l'utilisateur (WinSta0/Default)."""
+    if sys.platform != "win32":
+        return
+    try:
+        user32 = ctypes.windll.user32
+        hwinsta = user32.OpenWindowStationW("WinSta0", False, 0x0000037F)
+        if hwinsta:
+            user32.SetProcessWindowStation(hwinsta)
+        hdesk = user32.OpenDesktopW("Default", 0, False, 0x000001FF)
+        if hdesk:
+            user32.SetThreadDesktop(hdesk)
+    except Exception:
+        pass
+
 def force_window_to_foreground(hwnd):
-    """
-    Force une fenêtre Windows spécifique à passer au tout premier plan et à recevoir le focus,
-    même si une autre application (ex: Google Chrome personnel) est active et maximisée.
-    Contourne la restriction Foreground Lock Timeout de Windows.
-    """
-    if sys.platform != "win32" or not hwnd:
+    """Force une fenêtre Windows à passer immédiatement au tout premier plan et à recevoir le focus actif."""
+    if not hwnd:
         return False
     try:
+        _attach_user_desktop()
         import ctypes
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
@@ -2230,12 +2245,26 @@ def force_window_to_foreground(hwnd):
     except Exception:
         return False
 
-def find_hwnds_for_account(account_id):
+def find_hwnds_for_account(account_id, proc=None):
     """Trouve toutes les fenêtres visibles associées spécifiquement au profil de ce compte."""
     if sys.platform != "win32":
         return []
+    _attach_user_desktop()
     target_key = str(account_id).lower()
     pids = set()
+
+    # 1. Ajouter le PID du processus directement lancé s'il est fourni ou actif
+    active_proc = proc or _running_browser_procs.get(account_id)
+    if active_proc and hasattr(active_proc, "pid") and active_proc.poll() is None:
+        pids.add(active_proc.pid)
+        try:
+            import psutil
+            for c in psutil.Process(active_proc.pid).children(recursive=True):
+                pids.add(c.pid)
+        except Exception:
+            pass
+
+    # 2. Scanner les processus existants ayant ce dossier de profil
     try:
         import psutil
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
@@ -2422,11 +2451,12 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
             creationflags=creationflags,
             close_fds=True
         )
+        _running_browser_procs[account_id] = proc
 
         # Attente synchrone et rapide que la fenêtre apparaisse pour la placer immédiatement au premier plan
         for _ in range(16):
             time.sleep(0.18)
-            hwnds = find_hwnds_for_account(account_id)
+            hwnds = find_hwnds_for_account(account_id, proc=proc)
             if hwnds:
                 for h in hwnds:
                     force_window_to_foreground(h)
@@ -2438,7 +2468,7 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
                 time.sleep(0.3)
                 if proc.poll() is not None:
                     break
-                hwnds = find_hwnds_for_account(account_id)
+                hwnds = find_hwnds_for_account(account_id, proc=proc)
                 if hwnds:
                     for h in hwnds:
                         force_window_to_foreground(h)
@@ -2451,6 +2481,7 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
             for _ in range(60):
                 time.sleep(3)
                 if proc.poll() is not None:
+                    _running_browser_procs.pop(account_id, None)
                     time.sleep(1)
                     disk_s = extract_session_from_profile_disk(account_id)
                     if disk_s and (disk_s.get("refresh_token") or disk_s.get("cookies")):

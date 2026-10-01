@@ -267,11 +267,16 @@ def api_open_browser():
         broadcast_log(f"🌐 Lancement du navigateur pour '{name}'...", "info")
         import threading
         def _launch():
-            ok, msg = engine.open_account_browser(account_id, url=start_url, browser_type=browser_type)
-            if ok:
-                broadcast_log(f"✓ {msg}", "success")
-            else:
-                broadcast_log(f"✗ {msg}", "error")
+            try:
+                ok, msg = engine.open_account_browser(account_id, url=start_url, browser_type=browser_type)
+                print(f"[API_OPEN_BROWSER] result: {ok}, {msg}", flush=True)
+                if ok:
+                    broadcast_log(f"✓ {msg}", "success")
+                else:
+                    broadcast_log(f"✗ {msg}", "error")
+            except Exception as e:
+                import traceback
+                print(f"[API_OPEN_BROWSER ERROR] {e}\n{traceback.format_exc()}", flush=True)
         threading.Thread(target=_launch, daemon=True).start()
         return jsonify({"success": True})
     return jsonify({"success": False}), 400
