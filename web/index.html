@@ -335,6 +335,28 @@
         </div>
       </div>
 
+      <!-- Reconnect / Login Required Global Alert Banner -->
+      <div id="reconnectGlobalAlert" class="hidden mb-6 p-4 rounded-2xl bg-gradient-to-r from-amber-950/90 via-rose-950/90 to-amber-950/90 border border-amber-500/70 shadow-2xl shadow-amber-950/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-pulse">
+        <div class="flex items-center gap-3.5">
+          <div class="w-11 h-11 rounded-xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-300 flex-shrink-0">
+            <i data-lucide="key" class="w-6 h-6 text-amber-400"></i>
+          </div>
+          <div>
+            <h4 class="text-sm font-black text-white flex items-center gap-2">
+              <span>🔑 Connexion Requise</span>
+              <span id="reconnectAccountNameBadge" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/30 text-amber-200 border border-amber-400/40">Compte</span>
+            </h4>
+            <p id="reconnectAlertText" class="text-xs text-amber-200/80 mt-0.5">La session a expiré ou nécessite une identification. Cliquez pour ouvrir la page de connexion sur votre écran (vos cookies seront sauvegardés à vie).</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 w-full md:w-auto">
+          <button id="btnReconnectGlobalAlert" onclick="reconnectGlobal()" class="flex-1 md:flex-none px-4 py-2.5 bg-gradient-to-r from-amber-600 via-orange-600 to-rose-600 hover:from-amber-500 hover:to-rose-500 text-white rounded-xl text-xs font-black shadow-lg shadow-amber-950 flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer">
+            <i data-lucide="external-link" class="w-4 h-4"></i>
+            <span>🔑 Se connecter</span>
+          </button>
+        </div>
+      </div>
+
       <!-- Account Cards Grid -->
       <div id="cardsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <!-- Rendu dynamique des cartes de comptes ici -->
@@ -1067,6 +1089,20 @@
         }
       }
 
+      // Reconnect / Disconnected Alert Banner Check
+      const discoAcc = (state.accounts || []).find(a => !a.is_connected || a.is_reconnect_needed || (a.status_text && (a.status_text.includes("Connexion") || a.status_text.includes("Reconnecter") || a.status_text.includes("expirée") || a.status_text.includes("Non connecté"))));
+      const discoAlertEl = document.getElementById('reconnectGlobalAlert');
+      if (discoAlertEl) {
+        if (discoAcc && !blockedAcc) {
+          discoAlertEl.classList.remove('hidden');
+          const badge = document.getElementById('reconnectAccountNameBadge');
+          if (badge) badge.innerText = discoAcc.name || discoAcc.id;
+          window._currentDiscoAccountId = discoAcc.id;
+        } else {
+          discoAlertEl.classList.add('hidden');
+        }
+      }
+
       // Rendu des Cartes de Comptes
       renderAccountCards();
 
@@ -1127,14 +1163,18 @@
         let statusBadgeClass = "bg-emerald-950/70 text-emerald-300 border border-emerald-500/40 shadow-glow-emerald";
         let statusText = acc.status_text || "✅ Prêt";
 
+        const isDisconnected = !acc.is_connected || acc.is_reconnect_needed || (statusText && (statusText.includes("Reconnecter") || statusText.includes("Session expirée") || statusText.includes("Se connecter") || statusText.includes("Non connecté")));
+
         if (statusText.includes("Limite") || statusText.includes("🛑")) {
           statusBadgeClass = "bg-amber-950/80 text-amber-300 border border-amber-500/50 shadow-glow-amber";
-        } else if (acc.is_reconnect_needed || statusText.includes("Reconnecter") || statusText.includes("Session expirée")) {
-          statusBadgeClass = "bg-rose-950/80 text-rose-300 border border-rose-500/50 shadow-glow-rose";
+        } else if (isDisconnected) {
+          statusBadgeClass = "bg-rose-950/80 text-rose-300 border border-rose-500/50 shadow-glow-rose animate-pulse";
+          statusText = "🔑 Se connecter";
         } else if (acc.is_captcha_blocked || statusText.includes("Défi")) {
           statusBadgeClass = "bg-purple-950/80 text-purple-300 border border-purple-500/50 animate-pulse shadow-glow-purple";
         } else if (!acc.is_connected) {
-          statusBadgeClass = "bg-slate-900 text-slate-400 border border-slate-800";
+          statusBadgeClass = "bg-rose-950/80 text-rose-300 border border-rose-500/50 shadow-glow-rose animate-pulse";
+          statusText = "🔑 Se connecter";
         }
 
         // Segmented Stock Bar (e.g. 10 slots)
@@ -1183,11 +1223,11 @@
             <span>${acc.is_connected ? 'Ouvrir' : 'Connecter'}</span>
           </button>
         `;
-        if (acc.is_reconnect_needed || statusText.includes("Reconnecter")) {
+        if (isDisconnected) {
           setupBtn = `
-            <button onclick="openBrowser('${acc.id}')" class="px-3.5 py-2 bg-gradient-to-r from-amber-600 via-orange-600 to-rose-600 hover:from-amber-500 hover:to-rose-500 text-white rounded-xl text-xs font-black shadow-lg shadow-amber-950 flex items-center gap-1.5 transition-all active:scale-95 animate-pulse">
+            <button onclick="openBrowser('${acc.id}', 'https://www.wiki-masters.com/login')" class="px-3.5 py-2 bg-gradient-to-r from-amber-600 via-rose-600 to-red-600 hover:from-amber-500 hover:to-rose-500 text-white rounded-xl text-xs font-black shadow-lg shadow-rose-950 flex items-center gap-1.5 transition-all active:scale-95 animate-pulse cursor-pointer">
               <i data-lucide="key" class="w-3.5 h-3.5"></i>
-              <span>🔑 Reconnecter</span>
+              <span>🔑 Se connecter</span>
             </button>
           `;
         } else if (acc.is_captcha_blocked || (statusText && statusText.includes("Défi"))) {
@@ -1206,7 +1246,14 @@
             <span>Tirer</span>
           </button>
         `;
-        if (acc.is_captcha_blocked || (statusText && statusText.includes("Défi"))) {
+        if (isDisconnected) {
+          claimBtnHtml = `
+            <button onclick="openBrowser('${acc.id}', 'https://www.wiki-masters.com/login')" class="flex-1 py-2 bg-gradient-to-r from-amber-600 via-rose-600 to-red-600 hover:from-amber-500 hover:to-rose-500 text-white rounded-xl text-xs font-black transition-all active:scale-95 shadow-lg shadow-rose-950 flex items-center justify-center gap-1.5 animate-pulse cursor-pointer">
+              <i data-lucide="key" class="w-3.5 h-3.5"></i>
+              <span>🔑 Se connecter</span>
+            </button>
+          `;
+        } else if (acc.is_captcha_blocked || (statusText && statusText.includes("Défi"))) {
           claimBtnHtml = `
             <button onclick="resumeClaim('${acc.id}')" class="flex-1 py-2 bg-gradient-to-r from-purple-700 to-indigo-700 hover:from-purple-600 hover:to-indigo-600 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-lg shadow-purple-950 flex items-center justify-center gap-1.5 border border-purple-400/30 cursor-pointer">
               <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
@@ -1275,9 +1322,9 @@
             </div>
 
             <!-- Status Pill -->
-            <span class="text-[10px] font-extrabold px-3 py-1 rounded-full ${statusBadgeClass} flex-shrink-0 flex items-center gap-1.5">
+            <button onclick="handleStatusPillClick('${acc.id}', ${acc.is_captcha_blocked}, ${isDisconnected})" class="text-[10px] font-extrabold px-3 py-1 rounded-full ${statusBadgeClass} flex-shrink-0 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-transform" title="Cliquer pour interagir">
               <span>${statusText}</span>
-            </span>
+            </button>
           </div>
 
           <!-- Donut Timer & Stock Display -->
@@ -1300,10 +1347,13 @@
                 ${isPulling ? `
                   <div class="animate-spin text-brand-300 text-lg mb-0.5"><i data-lucide="loader-2" class="w-5 h-5"></i></div>
                   <span class="text-[8px] text-brand-300 font-extrabold tracking-wider">TIRAGE…</span>
+                ` : (isDisconnected ? `
+                  <span class="font-mono font-black text-xs text-rose-300">DÉCONNECTÉ</span>
+                  <span class="text-[8px] text-rose-400 font-extrabold tracking-wider mt-0.5">CONNEXION</span>
                 ` : `
                   <span class="font-mono font-extrabold text-sm text-white tabular-nums">${formatTime(leftSec)}</span>
                   <span class="text-[8px] text-slate-400 font-extrabold tracking-wider mt-0.5">${leftSec === 0 ? 'PRÊT !' : 'ATTENTE'}</span>
-                `}
+                `)}
               </div>
             </div>
 
@@ -1485,6 +1535,22 @@
     function resumeClaimGlobal() {
       if (window._currentBlockedAccountId) {
         resumeClaim(window._currentBlockedAccountId);
+      }
+    }
+
+    function reconnectGlobal() {
+      if (window._currentDiscoAccountId) {
+        openBrowser(window._currentDiscoAccountId, 'https://www.wiki-masters.com/login');
+      }
+    }
+
+    function handleStatusPillClick(accId, isCaptcha, isReconnect) {
+      if (isCaptcha) {
+        resolveCaptcha(accId);
+      } else if (isReconnect) {
+        openBrowser(accId, 'https://www.wiki-masters.com/login');
+      } else {
+        claimSingle(accId);
       }
     }
 

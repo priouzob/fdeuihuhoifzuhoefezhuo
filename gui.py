@@ -2898,6 +2898,9 @@ class AccountCard(QFrame):
         hrow.addStretch()
 
         self.status_badge = QLabel("Non connecté")
+        self.status_badge.setCursor(Qt.PointingHandCursor)
+        self.status_badge.setToolTip("Cliquer pour vous connecter ou résoudre le statut")
+        self.status_badge.mousePressEvent = self.on_status_badge_clicked
         self.status_badge.setStyleSheet(
             f"background:#451a03; color:#fde68a; border:1px solid #78350f; padding:3px 10px; "
             f"border-radius:999px; font-size:10px; font-weight:700; letter-spacing:0.3px;"
@@ -3260,8 +3263,16 @@ class AccountCard(QFrame):
         engine.rename_account(self.account_id, new_name)
         self.rename_requested.emit(self.account_id, new_name)
 
+    def on_status_badge_clicked(self, event=None):
+        if getattr(self, "is_captcha_blocked", False):
+            self.setup_requested.emit(self.account_id)
+        elif getattr(self, "is_reconnect_needed", False) or not self.is_connected:
+            self.setup_requested.emit(self.account_id)
+        else:
+            self.claim_requested.emit(self.account_id)
+
     def on_claim_clicked(self):
-        if self.is_captcha_blocked:
+        if self.is_captcha_blocked or getattr(self, "is_reconnect_needed", False) or not self.is_connected:
             self.setup_requested.emit(self.account_id)
         else:
             self.claim_requested.emit(self.account_id)
@@ -3412,13 +3423,26 @@ class AccountCard(QFrame):
         if getattr(self, "is_setting_up", False):
             return
         if needed:
-            self.btn_setup.setText("🔑  Reconnecter")
+            self.is_connected = False
+            self.remaining_seconds = 0
+            self.set_status("🔑  Se connecter", "#7f1d1d", "#fca5a5")
+            self.sub_lbl.setText("Session requise — Cliquez pour vous connecter")
+            self.donut.set_idle()
+            self.btn_claim.setText("🔑  Se connecter")
+            self.btn_claim.setObjectName("btnWarn")
+            self.btn_claim.style().unpolish(self.btn_claim)
+            self.btn_claim.style().polish(self.btn_claim)
+            self.btn_setup.setText("🔑  Connecter")
             self.btn_setup.setStyleSheet(
                 "QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #78350f, stop:1 #92400e); "
                 "border: 1px solid #f59e0b; color: #fffbeb; font-size: 11px; font-weight: 800; border-radius: 8px; padding: 7px 12px; } "
                 "QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #92400e, stop:1 #b45309); color: white; border-color: #fbbf24; }"
             )
         else:
+            self.btn_claim.setText("⚡  Tirer")
+            self.btn_claim.setObjectName("btnPrimary")
+            self.btn_claim.style().unpolish(self.btn_claim)
+            self.btn_claim.style().polish(self.btn_claim)
             self.btn_setup.setStyleSheet(
                 f"QPushButton {{ background: {C_ELEVATED}; color: {C_TEXT}; border: 1px solid {C_BORDER2}; "
                 f"border-radius: 8px; padding: 7px 12px; font-size: 11px; font-weight: 700; }} "
@@ -3471,10 +3495,12 @@ class AccountCard(QFrame):
                 self.donut.set_countdown(0)
 
     def set_countdown(self, seconds):
-        self.is_connected = True
+        if not getattr(self, "is_reconnect_needed", False):
+            self.is_connected = True
         self.remaining_seconds = max(0, seconds)
         self.donut.set_countdown(self.remaining_seconds)
-        self.sub_lbl.setText("Prochain paquet dans :")
+        if seconds > 0:
+            self.sub_lbl.setText("Prochain paquet dans :")
 
     def set_claiming_state(self):
         self.is_claiming = True
@@ -3546,8 +3572,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("WikiMasters Auto-Claimer — Google Chrome Multi-Comptes")
-        self.resize(1120, 820)
-        self.setMinimumSize(920, 700)
+        self.resize(1180, 900)
+        self.setMinimumSize(960, 780)
         self.setStyleSheet(DARK_STYLE)
 
         self.is_running    = True
@@ -3804,9 +3830,9 @@ class MainWindow(QMainWindow):
         # Scroll Area pour les cartes de comptes
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFixedHeight(440)
+        scroll.setFixedHeight(540)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         self.scroll_content = QWidget()
@@ -4294,14 +4320,14 @@ class MainWindow(QMainWindow):
 
         ready = [
             acc_id for acc_id, card in self.account_cards.items()
-            if card.is_connected and card.remaining_seconds == 0 and not card.is_claiming and acc_id not in self.claim_workers and not engine.is_account_busy(acc_id)
+            if card.is_connected and not getattr(card, "is_reconnect_needed", False) and not getattr(card, "is_captcha_blocked", False) and card.remaining_seconds == 0 and not card.is_claiming and acc_id not in self.claim_workers and not engine.is_account_busy(acc_id)
         ]
         if ready:
             # Synchronisation intelligente de flotte (Fleet Sync) :
             # Si certains comptes sont prêts et que d'autres sont à ≤ 30s, attendre qu'ils s'alignent pour tirer ensemble
             near_ready = [
                 acc_id for acc_id, card in self.account_cards.items()
-                if card.is_connected and 0 < card.remaining_seconds <= 30 and not card.is_claiming and acc_id not in self.claim_workers and not engine.is_account_busy(acc_id)
+                if card.is_connected and not getattr(card, "is_reconnect_needed", False) and not getattr(card, "is_captcha_blocked", False) and 0 < card.remaining_seconds <= 30 and not card.is_claiming and acc_id not in self.claim_workers and not engine.is_account_busy(acc_id)
             ]
             if near_ready:
                 if not hasattr(self, "_fleet_sync_wait_ticks"):
@@ -4462,27 +4488,16 @@ class MainWindow(QMainWindow):
             )
 
         elif status == "login_required":
-            # Ne PAS déconnecter définitivement le compte : récupération automatique résiliente
-            card.is_connected = True
+            card.is_connected = False
             card.login_fail_count = getattr(card, "login_fail_count", 0) + 1
-            if card.login_fail_count <= 2:
-                retry_sec = 60
-                card.set_status("⚠️  Reconnexion…", "#451a03", "#fde68a")
-                card.sub_lbl.setText("Nouvel essai dans 1 min…")
-                self.log(f"[{browser_name}] ⚠️ Session expirée ou latence serveur. Nouvel essai automatique dans 60s…", "warning")
-            elif card.login_fail_count <= 5:
-                retry_sec = 180
-                card.set_status("⚠️  Session expirée", "#451a03", "#fde68a")
-                card.sub_lbl.setText("Réessai dans 3 min (ou Connecter)")
-                self.log(f"[{browser_name}] ⚠️ Session expirée. Réessai dans 3 min. Cliquez sur '🔑 Connecter' si besoin.", "warning")
-                card.set_reconnect_needed(True)
-            else:
-                retry_sec = 600
-                card.set_status("🔑  À Reconnecter", "#7f1d1d", "#fca5a5")
-                card.sub_lbl.setText("Cliquez sur '🔑 Connecter'")
-                card.set_reconnect_needed(True)
-                self.log(f"[{browser_name}] ✕ Session non connectée (expirée). Cliquez sur '🔑 Connecter' pour ouvrir et valider la session.", "warning")
-            card.set_countdown(retry_sec)
+            card.set_reconnect_needed(True)
+            card.set_status("🔑  Se connecter", "#7f1d1d", "#fca5a5")
+            card.sub_lbl.setText("Session requise — Cliquez pour vous connecter")
+            card.donut.set_idle()
+            card.set_countdown(0)
+            self.log(
+                f"[{browser_name}] 🔑 Session expirée ou déconnectée. Cliquez sur '🔑 Se connecter' sur la carte du compte pour vous identifier sur WikiMasters.", "warning"
+            )
 
         elif status == "not_configured":
             card.is_connected = False
@@ -4537,14 +4552,19 @@ class MainWindow(QMainWindow):
             if card and getattr(card, "is_captcha_blocked", False):
                 ch_info = engine.get_account_challenge_info(account_id)
                 start_url = ch_info.get("url") or "https://www.wiki-masters.com/pulls"
+            elif card and (getattr(card, "is_reconnect_needed", False) or not card.is_connected):
+                start_url = "https://www.wiki-masters.com/login"
             else:
-                start_url = "https://www.wiki-masters.com/pulls"
+                start_url = "https://www.wiki-masters.com/login" if not engine.has_saved_session_vault(account_id) else "https://www.wiki-masters.com/pulls"
 
         if card:
             card.set_setting_up_mode(True)
             if getattr(card, "is_captcha_blocked", False):
                 card.set_status("⌛  Défi en cours…", "#581c87", "#f5d0fe")
                 card.sub_lbl.setText("Résolvez le défi sur votre écran…")
+            elif getattr(card, "is_reconnect_needed", False) or not card.is_connected:
+                card.set_status("⌛  Connexion…", "#78350f", "#fef08a")
+                card.sub_lbl.setText("Connectez-vous sur votre écran…")
 
         acc = engine.get_account_info(account_id)
         name = acc.get("name", account_id)

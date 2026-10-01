@@ -1526,6 +1526,17 @@ def extract_session_from_profile_disk(account_id):
                     except Exception:
                         pass
 
+    if session_data.get("refresh_token") and session_data.get("access_token"):
+        try:
+            sb_cookies, sb_ls, _ = build_supabase_cookies_and_storage(session_data)
+            existing_names = {c.get("name") for c in session_data["cookies"]}
+            for c in sb_cookies:
+                if c.get("name") not in existing_names:
+                    session_data["cookies"].append(c)
+            session_data["local_storage"].update(sb_ls)
+        except Exception:
+            pass
+
     if session_data["refresh_token"] or session_data["cookies"]:
         return session_data
     return None
@@ -1794,7 +1805,7 @@ def ensure_fresh_session_vault(account_id):
             write_debug(f"Jetons Supabase expirés ou proches d'expirer pour {account_id}. Rafraîchissement automatique...")
             new_session = refresh_supabase_tokens(refresh_token)
             if new_session and new_session.get("access_token"):
-                sb_cookies, sb_ls, full_sess = build_supabase_cookies_and_storage(new_session)
+                sb_cookies, sb_ls, full_session = build_supabase_cookies_and_storage(new_session)
 
                 existing_cookies = [c for c in vault.get("cookies", []) if SUPABASE_COOKIE_PREFIX not in c.get("name", "")]
                 existing_cookies.extend(sb_cookies)
@@ -2104,6 +2115,21 @@ def close_active_setup():
             pass
     _active_setup_proc = None
 
+def is_browser_running_for_profile(profile_dir):
+    """Vérifie si un processus de navigateur est actuellement actif pour ce profil."""
+    try:
+        norm_dir = str(Path(profile_dir).resolve()).lower()
+        for p in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                cmd = " ".join(p.info.get('cmdline') or []).lower()
+                if norm_dir in cmd and any(b in (p.info.get('name') or '').lower() for b in ['chrome', 'brave', 'msedge', 'opera']):
+                    return True
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return False
+
 def setup_account(account_id, start_url="https://www.wiki-masters.com/login", status_callback=None, browser_type=None):
     global _active_setup_proc, _active_setup_stop_flag
     close_active_setup()
@@ -2117,43 +2143,51 @@ def setup_account(account_id, start_url="https://www.wiki-masters.com/login", st
 
     target_url = "https://www.wiki-masters.com/login" if ("/login" in start_url or "/signup" in start_url) else start_url
     safe_notify(status_callback, f"🔑 Ouverture de {b_name} pour {name} sur votre écran...", "info")
-    safe_notify(status_callback, "Identifiez-vous ou résolvez le défi sur la fenêtre ouverte. Sauvegarde 100% automatique.", "warning")
+    safe_notify(status_callback, "Identifiez-vous sur WikiMasters dans la fenêtre ouverte. Sauvegarde 100% automatique.", "warning")
 
-    ok, msg = open_account_browser(account_id, url=target_url, browser_type=b_type)
-    if not ok:
-        safe_notify(status_callback, f"Erreur ouverture : {msg}", "error")
-        return False, msg
+    mark_account_busy(account_id)
+    try:
+        ok, msg = open_account_browser(account_id, url=target_url, browser_type=b_type)
+        if not ok:
+            safe_notify(status_callback, f"Erreur ouverture : {msg}", "error")
+            return False, msg
 
-    # Attendre que la session soit détectée sur le disque ou que le navigateur soit fermé
-    is_logged_in = False
-    start_wait = time.time()
-    while not _active_setup_stop_flag and time.time() - start_wait < 300:
-        time.sleep(1.5)
-        disk_s = extract_session_from_profile_disk(account_id)
-        if disk_s and (disk_s.get("refresh_token") or len(disk_s.get("cookies", [])) >= 2):
-            save_session_dict_to_vault(account_id, disk_s)
-            clear_account_challenge(account_id)
-            is_logged_in = True
-            safe_notify(status_callback, f"[{name}] 🛡️ Session & cookies sauvegardés dans le coffre-fort permanent !", "success")
-            time.sleep(1.0)
-            break
+        p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
+        time.sleep(2.0)
 
-        proc = _running_browser_procs.get(account_id)
-        if proc and hasattr(proc, "poll") and proc.poll() is not None:
-            time.sleep(1.0)
+        # Attendre que la session soit détectée sur le disque ou que le navigateur soit fermé
+        is_logged_in = False
+        start_wait = time.time()
+        while not _active_setup_stop_flag and time.time() - start_wait < 300:
+            time.sleep(1.5)
             disk_s = extract_session_from_profile_disk(account_id)
             if disk_s and (disk_s.get("refresh_token") or len(disk_s.get("cookies", [])) >= 1):
                 save_session_dict_to_vault(account_id, disk_s)
                 clear_account_challenge(account_id)
                 is_logged_in = True
-            break
+                safe_notify(status_callback, f"[{name}] ✅ Connexion validée ! Session & cookies sauvegardés dans le coffre-fort permanent.", "success")
+                time.sleep(1.0)
+                break
 
-    if is_logged_in or has_saved_session_vault(account_id):
-        safe_notify(status_callback, f"✅ Connexion validée pour {name} ! Compte protégé.", "success")
-        return True, "Session validée et sécurisée dans le coffre-fort"
-    else:
-        safe_notify(status_callback, f"Connexion non complétée pour {name}. Cliquez sur '🔑 Connecter' et validez.", "warning")
-        return False, "Connexion non complétée. Veuillez vous identifier sur WikiMasters."
+            # Détecter la fermeture réelle du navigateur
+            if not is_browser_running_for_profile(p_dir):
+                time.sleep(1.0)
+                disk_s = extract_session_from_profile_disk(account_id)
+                if disk_s and (disk_s.get("refresh_token") or len(disk_s.get("cookies", [])) >= 1):
+                    save_session_dict_to_vault(account_id, disk_s)
+                    clear_account_challenge(account_id)
+                    is_logged_in = True
+                    safe_notify(status_callback, f"[{name}] ✅ Session capturée à la fermeture du navigateur !", "success")
+                break
+
+        if is_logged_in or has_saved_session_vault(account_id):
+            safe_notify(status_callback, f"✅ Connexion validée pour {name} ! Compte protégé et prêt.", "success")
+            return True, "Session validée et sécurisée dans le coffre-fort"
+        else:
+            safe_notify(status_callback, f"Connexion non complétée pour {name}. Cliquez sur '🔑 Se connecter' et validez.", "warning")
+            return False, "Connexion non complétée. Veuillez vous identifier sur WikiMasters."
+    finally:
+        unmark_account_busy(account_id)
 
 def _attach_user_desktop():
     """Attache le thread appelant au bureau interactif principal de l'utilisateur (WinSta0/Default)."""
@@ -2549,7 +2583,19 @@ def open_account_browser(account_id, url=None, browser_type=None, on_resolved_ca
         def _watch_login_bg():
             for _ in range(120):  # Surveillance active jusqu'à 4 minutes
                 time.sleep(2)
-                if proc.poll() is not None:
+                disk_s = extract_session_from_profile_disk(account_id)
+                if disk_s and (disk_s.get("refresh_token") or len(disk_s.get("cookies", [])) >= 1):
+                    save_session_dict_to_vault(account_id, disk_s)
+                    clear_account_challenge(account_id)
+                    write_debug(f"Coffre-fort session capturé en direct depuis {b_name} pour {name} !")
+                    if callable(on_resolved_callback):
+                        try:
+                            on_resolved_callback(account_id)
+                        except Exception:
+                            pass
+                    break
+
+                if not is_browser_running_for_profile(active_p_dir):
                     _running_browser_procs.pop(account_id, None)
                     time.sleep(1)
                     disk_s = extract_session_from_profile_disk(account_id)
@@ -2562,17 +2608,6 @@ def open_account_browser(account_id, url=None, browser_type=None, on_resolved_ca
                                 on_resolved_callback(account_id)
                             except Exception:
                                 pass
-                    break
-                disk_s = extract_session_from_profile_disk(account_id)
-                if disk_s and (disk_s.get("refresh_token") or len(disk_s.get("cookies", [])) >= 2):
-                    save_session_dict_to_vault(account_id, disk_s)
-                    clear_account_challenge(account_id)
-                    write_debug(f"Coffre-fort session capturé en direct depuis {b_name} pour {name} !")
-                    if callable(on_resolved_callback):
-                        try:
-                            on_resolved_callback(account_id)
-                        except Exception:
-                            pass
                     break
 
         threading.Thread(target=_watch_login_bg, daemon=True).start()
