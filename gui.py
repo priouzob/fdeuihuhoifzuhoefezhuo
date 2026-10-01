@@ -3275,10 +3275,10 @@ class AccountCard(QFrame):
     def set_captcha_mode(self, active=True):
         self.is_captcha_blocked = active
         if active:
-            self.set_status("⚠️  Anti-Bot", "#92400e", "#fde68a")
-            self.sub_lbl.setText("Défi détecté — cliquez sur Résoudre")
+            self.set_status("🛡️  Anti-Bot", "#581c87", "#f5d0fe")
+            self.sub_lbl.setText("Défi détecté — Cliquez sur Résoudre")
             self.btn_claim.setObjectName("btnWarn")
-            self.btn_claim.setText("🛠  Résoudre")
+            self.btn_claim.setText("🛠️  Résoudre le Défi")
             self.btn_claim.style().unpolish(self.btn_claim)
             self.btn_claim.style().polish(self.btn_claim)
         else:
@@ -4458,8 +4458,7 @@ class MainWindow(QMainWindow):
             card.set_captcha_mode(True)
             card.set_countdown(sec)
             self.log(
-                f"[{browser_name}] ⚠  Défi anti-bot. Les autres comptes continuent. "
-                f"Cliquez sur 🛠 Résoudre.", "warning"
+                f"[{browser_name}] 🛡️  Défi anti-bot détecté ! Cliquez sur '🛠️ Résoudre le Défi' sur la carte du compte pour l'ouvrir sur votre écran.", "warning"
             )
 
         elif status == "login_required":
@@ -4525,7 +4524,7 @@ class MainWindow(QMainWindow):
         self.log(f"↻  Actualisation : {title}…", "info")
         self.trigger_claim_cycle([account_id])
 
-    def start_account_setup(self, account_id, start_url="https://wiki-masters.com/pulls", browser_type=None):
+    def start_account_setup(self, account_id, start_url=None, browser_type=None):
         if self.setup_worker and self.setup_worker.isRunning():
             self.log("Fermeture de la configuration précédente…", "warning")
             engine.close_active_setup()
@@ -4534,8 +4533,18 @@ class MainWindow(QMainWindow):
             self.setup_worker = None
 
         card = self.account_cards.get(account_id)
+        if not start_url:
+            if card and getattr(card, "is_captcha_blocked", False):
+                ch_info = engine.get_account_challenge_info(account_id)
+                start_url = ch_info.get("url") or "https://www.wiki-masters.com/pulls"
+            else:
+                start_url = "https://www.wiki-masters.com/pulls"
+
         if card:
             card.set_setting_up_mode(True)
+            if getattr(card, "is_captcha_blocked", False):
+                card.set_status("⌛  Défi en cours…", "#581c87", "#f5d0fe")
+                card.sub_lbl.setText("Résolvez le défi sur votre écran…")
 
         acc = engine.get_account_info(account_id)
         name = acc.get("name", account_id)

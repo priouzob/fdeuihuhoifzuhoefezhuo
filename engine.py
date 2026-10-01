@@ -27,7 +27,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from stealth import apply_stealth, human_delay, human_click, check_and_handle_turnstile, check_and_handle_verification_modal, enforce_single_page, is_bot_challenge_active, is_turnstile_solved
+from stealth import apply_stealth, human_delay, human_click, check_and_handle_turnstile, check_and_handle_verification_modal, enforce_single_page, is_bot_challenge_active, is_turnstile_solved, get_bot_challenge_details
 
 BASE_DIR = Path(__file__).parent.resolve()
 CONFIG_FILE = BASE_DIR / "config.json"
@@ -44,6 +44,39 @@ _active_claim_accounts_lock = threading.Lock()
 _account_busy_set = set()
 _account_busy_lock = threading.RLock()
 _active_setup_proc = None
+
+_account_challenges = {}
+_account_challenges_lock = threading.Lock()
+
+def set_account_challenge(account_id, challenge_url="https://www.wiki-masters.com/pulls", challenge_type="anti_bot", message=None):
+    """Enregistre un blocage par défi anti-bot nécessitant une intervention utilisateur."""
+    with _account_challenges_lock:
+        _account_challenges[account_id] = {
+            "active": True,
+            "url": challenge_url or "https://www.wiki-masters.com/pulls",
+            "type": challenge_type or "anti_bot",
+            "message": message or "Défi anti-bot détecté. Cliquez sur '🛠️ Résoudre' pour valider sur votre écran.",
+            "detected_at": time.time()
+        }
+
+def clear_account_challenge(account_id):
+    """Efface le défi anti-bot pour un compte une fois validé."""
+    with _account_challenges_lock:
+        _account_challenges.pop(account_id, None)
+
+def is_account_challenge_active(account_id):
+    """Vérifie si un compte est actuellement bloqué par un défi anti-bot non résolu."""
+    with _account_challenges_lock:
+        info = _account_challenges.get(account_id)
+        return bool(info and info.get("active"))
+
+def get_account_challenge_info(account_id):
+    """Retourne les informations complètes sur le défi anti-bot d'un compte."""
+    with _account_challenges_lock:
+        info = _account_challenges.get(account_id)
+        if info:
+            return dict(info)
+        return {"active": False, "url": "https://www.wiki-masters.com/pulls", "type": "none", "message": ""}
 
 _cache_store = {}
 _cache_mtimes = {}
@@ -1425,19 +1458,39 @@ def extract_session_from_profile_disk(account_id):
             try:
                 with open(fpath, "rb") as fp:
                     data = fp.read()
-                    matches = re.findall(rb'\{[^{}]*"access_token"[^{}]*"refresh_token"[^{}]*\}', data)
-                    for m in matches:
-                        try:
-                            parsed = json.loads(m.decode("utf-8", errors="ignore"))
-                            if parsed.get("access_token") and parsed.get("refresh_token"):
-                                session_data["access_token"] = parsed["access_token"]
-                                session_data["refresh_token"] = parsed["refresh_token"]
-                                session_data["user"] = parsed.get("user", {})
-                                session_data["expires_at"] = parsed.get("expires_at")
-                                session_data["local_storage"][f"sb-{SUPABASE_REF}-auth-token"] = json.dumps(parsed)
-                                break
-                        except Exception:
-                            pass
+                idx = 0
+                while True:
+                    pos = data.find(b'access_token', idx)
+                    if pos == -1:
+                        break
+                    start = data.rfind(b'{', max(0, pos - 250), pos)
+                    if start != -1:
+                        depth = 0
+                        for i in range(start, min(len(data), start + 16384)):
+                            b = data[i:i+1]
+                            if b == b'{':
+                                depth += 1
+                            elif b == b'}':
+                                depth -= 1
+                                if depth == 0:
+                                    chunk = data[start:i+1]
+                                    try:
+                                        parsed = json.loads(chunk.decode("utf-8", errors="ignore"))
+                                        if isinstance(parsed, dict) and parsed.get("access_token") and parsed.get("refresh_token"):
+                                            session_data["access_token"] = parsed["access_token"]
+                                            session_data["refresh_token"] = parsed["refresh_token"]
+                                            session_data["user"] = parsed.get("user", {})
+                                            session_data["expires_at"] = parsed.get("expires_at")
+                                            session_data["local_storage"][f"sb-{SUPABASE_REF}-auth-token"] = json.dumps(parsed)
+                                            break
+                                    except Exception:
+                                        pass
+                                    break
+                    if session_data["refresh_token"]:
+                        break
+                    idx = pos + 12
+                if session_data["refresh_token"]:
+                    break
             except Exception:
                 pass
 
@@ -2052,7 +2105,7 @@ def close_active_setup():
     _active_setup_proc = None
 
 def setup_account(account_id, start_url="https://www.wiki-masters.com/login", status_callback=None, browser_type=None):
-    global _active_setup_proc, _active_setup_context, _active_setup_stop_flag
+    global _active_setup_proc, _active_setup_stop_flag
     close_active_setup()
     _active_setup_stop_flag = False
 
@@ -2061,125 +2114,46 @@ def setup_account(account_id, start_url="https://www.wiki-masters.com/login", st
     b_type = (browser_type or acc.get("browser_type", "chrome")).lower()
     b_info = SUPPORTED_BROWSERS.get(b_type, SUPPORTED_BROWSERS["chrome"])
     b_name = b_info["name"]
-    exe_path = find_browser_executable(b_type)
-
-    p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
-    p_dir.mkdir(parents=True, exist_ok=True)
-
-    if not os.path.exists(exe_path):
-        safe_notify(status_callback, f"Exécutable {b_name} ({exe_path}) introuvable.", "error")
-        return False, f"Exécutable introuvable : {exe_path}"
-
-    kill_browser_processes(account_id)
-    clean_profile_locks(account_id, max_wait=1.0)
-    sanitize_window_placement(p_dir)
-
-    safe_notify(status_callback, f"Ouverture de {b_name} pour {name}...", "info")
-    safe_notify(status_callback, f"Connectez-vous une seule fois dans la fenêtre ouverte. Vos cookies seront sauvegardés dans le coffre-fort permanent.", "warning")
 
     target_url = "https://www.wiki-masters.com/login" if ("/login" in start_url or "/signup" in start_url) else start_url
+    safe_notify(status_callback, f"🔑 Ouverture de {b_name} pour {name} sur votre écran...", "info")
+    safe_notify(status_callback, "Identifiez-vous ou résolvez le défi sur la fenêtre ouverte. Sauvegarde 100% automatique.", "warning")
 
-    try:
-        with sync_playwright() as p:
-            context = p.chromium.launch_persistent_context(
-                user_data_dir=str(p_dir),
-                executable_path=exe_path,
-                headless=False,
-                viewport={"width": 1280, "height": 850},
-                ignore_default_args=["--enable-automation"],
-                args=get_browser_launch_args(account_id)
-            )
-            _active_setup_context = context
-            apply_stealth(context)
-            page = enforce_single_page(context)
+    ok, msg = open_account_browser(account_id, url=target_url, browser_type=b_type)
+    if not ok:
+        safe_notify(status_callback, f"Erreur ouverture : {msg}", "error")
+        return False, msg
 
-            # Restauration automatique au cas où une session précédente existe
-            restore_session_to_context(context, page, account_id)
+    # Attendre que la session soit détectée sur le disque ou que le navigateur soit fermé
+    is_logged_in = False
+    start_wait = time.time()
+    while not _active_setup_stop_flag and time.time() - start_wait < 300:
+        time.sleep(1.5)
+        disk_s = extract_session_from_profile_disk(account_id)
+        if disk_s and (disk_s.get("refresh_token") or len(disk_s.get("cookies", [])) >= 2):
+            save_session_dict_to_vault(account_id, disk_s)
+            clear_account_challenge(account_id)
+            is_logged_in = True
+            safe_notify(status_callback, f"[{name}] 🛡️ Session & cookies sauvegardés dans le coffre-fort permanent !", "success")
+            time.sleep(1.0)
+            break
 
-            # Forcer la fenêtre visible au premier plan
-            time.sleep(0.5)
-            for _ in range(15):
-                hwnds = find_hwnds_for_account(account_id)
-                if hwnds:
-                    for h in hwnds:
-                        force_window_to_foreground(h)
-                    break
-                time.sleep(0.2)
+        proc = _running_browser_procs.get(account_id)
+        if proc and hasattr(proc, "poll") and proc.poll() is not None:
+            time.sleep(1.0)
+            disk_s = extract_session_from_profile_disk(account_id)
+            if disk_s and (disk_s.get("refresh_token") or len(disk_s.get("cookies", [])) >= 1):
+                save_session_dict_to_vault(account_id, disk_s)
+                clear_account_challenge(account_id)
+                is_logged_in = True
+            break
 
-            try:
-                page.goto(target_url, wait_until="domcontentloaded", timeout=20000)
-            except Exception:
-                pass
-
-            is_logged_in = False
-            # Attendre jusqu'à ce que l'utilisateur soit connecté ou que la fenêtre soit fermée
-            while not _active_setup_stop_flag:
-                try:
-                    if page.is_closed() or not context.pages:
-                        break
-
-                    curr_url = page.url.lower()
-
-                    # 1. Vérifier la navigation vers un tableau de bord connecté
-                    if any(path in curr_url for path in ["/pulls", "/collection", "/achievements", "/guild", "/market", "/profile"]):
-                        is_logged_in = True
-
-                    # 2. Vérifier les cookies globaux
-                    all_cookies = context.cookies()
-                    if any("auth-token" in c.get("name", "").lower() for c in all_cookies):
-                        is_logged_in = True
-
-                    # 3. Vérifier les éléments d'interface connectés
-                    if page.locator("a[href*='/pulls'], button:has-text('Ouvrir'), a[href*='/profile']").count() > 0:
-                        is_logged_in = True
-
-                    if is_logged_in:
-                        # Sauvegarder immédiatement dans le coffre-fort permanent
-                        saved = save_session_vault(context, page, account_id)
-                        if saved:
-                            safe_notify(status_callback, f"[{name}] 🛡️ Session & cookies sauvegardés dans le coffre-fort permanent !", "success")
-                            time.sleep(1.5)
-                            break
-
-                    time.sleep(0.8)
-                except Exception as e:
-                    if "closed" in str(e).lower():
-                        break
-                    time.sleep(0.8)
-
-            if not is_logged_in:
-                disk_s = extract_session_from_profile_disk(account_id)
-                if disk_s and (disk_s.get("refresh_token") or disk_s.get("cookies")):
-                    save_session_dict_to_vault(account_id, disk_s)
-                    is_logged_in = True
-
-            _active_setup_context = None
-            if is_logged_in:
-                safe_notify(status_callback, f"[{name}] ✅ Connexion validée ! Enregistrement du coffre-fort...", "success")
-                time.sleep(1.5)
-
-            try:
-                context.close()
-            except Exception:
-                pass
-
-        kill_browser_processes(account_id)
-
-        safe_notify(status_callback, f"Vérification de la session {name}...", "info")
-        is_valid = verify_session(account_id)
-        if is_valid or is_logged_in:
-            safe_notify(status_callback, f"Session validée pour {name} ! Compte protégé par le coffre-fort permanent.", "success")
-            return True, "Session validée et sécurisée dans le coffre-fort"
-        else:
-            safe_notify(status_callback, f"Connexion non complétée pour {name}. Cliquez sur '🔑 Connecter' et validez.", "warning")
-            return False, "Connexion non complétée. Veuillez vous identifier sur WikiMasters."
-
-    except Exception as e:
-        _active_setup_context = None
-        kill_browser_processes(account_id)
-        clean_err = format_clean_error(e)
-        safe_notify(status_callback, f"Erreur lors de la configuration : {clean_err}", "error")
-        return False, clean_err
+    if is_logged_in or has_saved_session_vault(account_id):
+        safe_notify(status_callback, f"✅ Connexion validée pour {name} ! Compte protégé.", "success")
+        return True, "Session validée et sécurisée dans le coffre-fort"
+    else:
+        safe_notify(status_callback, f"Connexion non complétée pour {name}. Cliquez sur '🔑 Connecter' et validez.", "warning")
+        return False, "Connexion non complétée. Veuillez vous identifier sur WikiMasters."
 
 def _attach_user_desktop():
     """Attache le thread appelant au bureau interactif principal de l'utilisateur (WinSta0/Default)."""
@@ -2316,8 +2290,12 @@ def find_hwnds_for_account(account_id, proc=None):
             return True
 
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        hdesk = user32.OpenDesktopW("Default", 0, False, 0x000001FF)
+        if hdesk:
+            user32.EnumDesktopWindows(hdesk, WNDENUMPROC(enum_cb), 0)
+            user32.CloseDesktop(hdesk)
         user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
-        return hwnds
+        return list(dict.fromkeys(hwnds))
     except Exception:
         return []
 
@@ -2357,12 +2335,104 @@ def bring_chrome_to_foreground(name_hint="WikiMasters", account_id=None):
     except Exception:
         pass
 
-def open_account_browser(account_id, url="https://wiki-masters.com/pulls", browser_type=None):
+def launch_process_on_user_desktop(cmd_list):
+    """
+    Lance un processus directement attaché au bureau interactif principal de l'utilisateur (WinSta0\\Default).
+    Garantit que la fenêtre est immédiatement visible sur l'écran physique de l'utilisateur.
+    """
+    if sys.platform != "win32":
+        return subprocess.Popen(cmd_list)
+    try:
+        import ctypes
+        from ctypes import wintypes
+        import subprocess
+
+        class STARTUPINFOW(ctypes.Structure):
+            _fields_ = [
+                ('cb', wintypes.DWORD),
+                ('lpReserved', wintypes.LPWSTR),
+                ('lpDesktop', wintypes.LPWSTR),
+                ('lpTitle', wintypes.LPWSTR),
+                ('dwX', wintypes.DWORD),
+                ('dwY', wintypes.DWORD),
+                ('dwXSize', wintypes.DWORD),
+                ('dwYSize', wintypes.DWORD),
+                ('dwXCountChars', wintypes.DWORD),
+                ('dwYCountChars', wintypes.DWORD),
+                ('dwFillAttribute', wintypes.DWORD),
+                ('dwFlags', wintypes.DWORD),
+                ('wShowWindow', wintypes.WORD),
+                ('cbReserved2', wintypes.WORD),
+                ('lpReserved2', ctypes.c_char_p),
+                ('hStdInput', wintypes.HANDLE),
+                ('hStdOutput', wintypes.HANDLE),
+                ('hStdError', wintypes.HANDLE),
+            ]
+
+        class PROCESS_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ('hProcess', wintypes.HANDLE),
+                ('hThread', wintypes.HANDLE),
+                ('dwProcessId', wintypes.DWORD),
+                ('dwThreadId', wintypes.DWORD),
+            ]
+
+        cmd_str = subprocess.list2cmdline(cmd_list)
+        si = STARTUPINFOW()
+        si.cb = ctypes.sizeof(STARTUPINFOW)
+        si.lpDesktop = r"WinSta0\Default"
+        pi = PROCESS_INFORMATION()
+
+        creationflags = 0x00000200  # CREATE_NEW_PROCESS_GROUP
+        res = ctypes.windll.kernel32.CreateProcessW(
+            None, cmd_str, None, None, False, creationflags, None, None,
+            ctypes.byref(si), ctypes.byref(pi)
+        )
+        if res:
+            ctypes.windll.kernel32.CloseHandle(pi.hThread)
+
+            class Win32ProcessWrapper:
+                def __init__(self, pid, hproc):
+                    self.pid = pid
+                    self._hproc = hproc
+                def poll(self):
+                    import ctypes
+                    code = ctypes.c_ulong()
+                    if ctypes.windll.kernel32.GetExitCodeProcess(self._hproc, ctypes.byref(code)):
+                        if code.value == 259:  # STILL_ACTIVE
+                            return None
+                        return code.value
+                    return -1
+                def terminate(self):
+                    import ctypes
+                    ctypes.windll.kernel32.TerminateProcess(self._hproc, 1)
+                def wait(self, timeout=None):
+                    import ctypes
+                    ms = int(timeout * 1000) if timeout else 0xFFFFFFFF
+                    ctypes.windll.kernel32.WaitForSingleObject(self._hproc, ms)
+                    return self.poll()
+                def __del__(self):
+                    try:
+                        ctypes.windll.kernel32.CloseHandle(self._hproc)
+                    except Exception:
+                        pass
+
+            return Win32ProcessWrapper(pi.dwProcessId, pi.hProcess)
+    except Exception as e:
+        write_debug(f"launch_process_on_user_desktop error: {e}")
+
+    return subprocess.Popen(
+        cmd_list,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
+        close_fds=True
+    )
+
+def open_account_browser(account_id, url=None, browser_type=None, on_resolved_callback=None):
     """
     Lance le navigateur associé à ce compte avec son profil persistant
-    dans une fenêtre visible et autonome au premier plan absolu.
+    dans une fenêtre visible et autonome au premier plan absolu de l'utilisateur (WinSta0\\Default).
     Prend en charge le choix direct du navigateur (Chrome, Brave, Edge).
-    Gère la coexistence avec les instances personnelles et débloque le focus.
+    Gère la coexistence avec les instances personnelles, résout les défis anti-bot et sauvegarde la session.
     """
     acc = get_account_info(account_id)
     name = acc.get("name", account_id)
@@ -2372,6 +2442,11 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
     exe_path = find_browser_executable(b_type)
 
     p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
+
+    # Priorité à l'URL de défi actif si aucune URL explicite n'a été spécifiée
+    if not url:
+        ch_info = get_account_challenge_info(account_id)
+        url = ch_info.get("url") if ch_info.get("active") else "https://wiki-masters.com/pulls"
 
     # 1. Vérifier si une fenêtre pour ce compte est DÉJÀ ouverte
     existing_hwnds = find_hwnds_for_account(account_id)
@@ -2443,18 +2518,12 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
         url
     ]
 
-    creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
-
     try:
-        proc = subprocess.Popen(
-            cmd,
-            creationflags=creationflags,
-            close_fds=True
-        )
+        proc = launch_process_on_user_desktop(cmd)
         _running_browser_procs[account_id] = proc
 
-        # Attente synchrone et rapide que la fenêtre apparaisse pour la placer immédiatement au premier plan
-        for _ in range(16):
+        # Attente synchrone que la fenêtre apparaisse pour la placer immédiatement au premier plan
+        for _ in range(25):
             time.sleep(0.18)
             hwnds = find_hwnds_for_account(account_id, proc=proc)
             if hwnds:
@@ -2464,7 +2533,7 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
 
         # Tâche de fond pour surveiller le focus et sauvegarder la session lors des connexions
         def _activate_bg():
-            for _ in range(25):
+            for _ in range(30):
                 time.sleep(0.3)
                 if proc.poll() is not None:
                     break
@@ -2478,20 +2547,32 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
         threading.Thread(target=_activate_bg, daemon=True).start()
 
         def _watch_login_bg():
-            for _ in range(60):
-                time.sleep(3)
+            for _ in range(120):  # Surveillance active jusqu'à 4 minutes
+                time.sleep(2)
                 if proc.poll() is not None:
                     _running_browser_procs.pop(account_id, None)
                     time.sleep(1)
                     disk_s = extract_session_from_profile_disk(account_id)
-                    if disk_s and (disk_s.get("refresh_token") or disk_s.get("cookies")):
+                    if disk_s and (disk_s.get("refresh_token") or len(disk_s.get("cookies", [])) >= 1):
                         save_session_dict_to_vault(account_id, disk_s)
+                        clear_account_challenge(account_id)
                         write_debug(f"Coffre-fort session capturé après fermeture de {b_name} pour {name} !")
+                        if callable(on_resolved_callback):
+                            try:
+                                on_resolved_callback(account_id)
+                            except Exception:
+                                pass
                     break
                 disk_s = extract_session_from_profile_disk(account_id)
-                if disk_s and disk_s.get("refresh_token"):
+                if disk_s and (disk_s.get("refresh_token") or len(disk_s.get("cookies", [])) >= 2):
                     save_session_dict_to_vault(account_id, disk_s)
+                    clear_account_challenge(account_id)
                     write_debug(f"Coffre-fort session capturé en direct depuis {b_name} pour {name} !")
+                    if callable(on_resolved_callback):
+                        try:
+                            on_resolved_callback(account_id)
+                        except Exception:
+                            pass
                     break
 
         threading.Thread(target=_watch_login_bg, daemon=True).start()
@@ -2752,8 +2833,11 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
 
                     if solved:
                         safe_notify(status_callback, f"[{name}] 🛡️ Vérification validée discrètement avec succès.", "success")
+                        clear_account_challenge(account_id)
                         time.sleep(1.0)
                     else:
+                        ch_url = page.url or target_url
+                        set_account_challenge(account_id, challenge_url=ch_url, challenge_type="anti_bot", message="🛡️ Défi anti-bot bloquant l'accès aux paquets.")
                         context.close()
                         kill_browser_processes(account_id)
                         cfg = load_config()
@@ -2767,19 +2851,33 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                             "status": "captcha_detected",
                             "browser": name,
                             "browser_key": account_id,
+                            "challenge_url": ch_url,
                             "seconds_left": 300,
-                            "timer_str": "05:00",
+                            "timer_str": "Défi Anti-Bot",
                             "stock": f"{extract_stock_count(page)} / 10",
-                            "details": "⚠️ Pop-up anti-bot bloquant l'accès aux paquets. Cliquez sur '🛠️ Résoudre'."
+                            "details": "⚠️ Défi anti-bot bloquant l'accès aux paquets. Cliquez sur '🛠️ Résoudre'."
                         }
 
                 # Vérification résiliente de la session et prévention des faux positifs
                 if "/login" in page.url or "/signup" in page.url:
                     # 1. Vérifier si un Turnstile est apparu sur la page de connexion
-                    cf_login = page.locator("iframe[src*='challenges.cloudflare.com'], iframe[src*='turnstile'], div.cf-turnstile")
-                    if cf_login.count() > 0:
+                    if is_bot_challenge_active(page):
                         safe_notify(status_callback, f"[{name}] 🛡️ Vérification anti-bot sur la page de connexion. Résolution discrète...", "stealth")
-                        check_and_handle_turnstile(page)
+                        solved_login = check_and_handle_turnstile(page) or check_and_handle_verification_modal(page)
+                        if not solved_login:
+                            ch_url = page.url or target_url
+                            set_account_challenge(account_id, challenge_url=ch_url, challenge_type="turnstile", message="🛡️ Défi anti-bot sur la page de connexion.")
+                            context.close()
+                            kill_browser_processes(account_id)
+                            return {
+                                "status": "captcha_detected",
+                                "browser": name,
+                                "browser_key": account_id,
+                                "challenge_url": ch_url,
+                                "seconds_left": 300,
+                                "timer_str": "Défi Anti-Bot",
+                                "details": "🛡️ Défi anti-bot sur la page de connexion. Cliquez sur '🛠️ Résoudre'."
+                            }
                         time.sleep(1.5)
 
                     # 2. Réparation d'urgence automatique via le Coffre-Fort de session
@@ -2843,14 +2941,17 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                                     ouvrir_btn = page.locator("button:has-text('Ouvrir'):not([disabled])").first
                                     is_btn_ready = (ouvrir_btn.count() > 0 and ouvrir_btn.is_visible() and ouvrir_btn.is_enabled())
                                 else:
+                                    ch_url = page.url or target_url
+                                    set_account_challenge(account_id, challenge_url=ch_url, challenge_type="anti_bot", message="🛡️ Pop-up anti-bot bloquant le bouton Ouvrir.")
                                     context.close()
                                     kill_browser_processes(account_id)
                                     return {
                                         "status": "captcha_detected",
                                         "browser": name,
                                         "browser_key": account_id,
+                                        "challenge_url": ch_url,
                                         "seconds_left": 300,
-                                        "timer_str": "05:00",
+                                        "timer_str": "Défi Anti-Bot",
                                         "stock": f"{stock} / 10",
                                         "details": "⚠️ Pop-up anti-bot bloquant l'accès aux paquets. Cliquez sur '🛠️ Résoudre'."
                                     }
@@ -2961,14 +3062,17 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
 
                         if not pack_opened:
                             if is_bot_challenge_active(page):
+                                ch_url = page.url or target_url
+                                set_account_challenge(account_id, challenge_url=ch_url, challenge_type="anti_bot", message="🛡️ Pop-up anti-bot apparue lors de l'ouverture du paquet.")
                                 context.close()
                                 kill_browser_processes(account_id)
                                 return {
                                     "status": "captcha_detected",
                                     "browser": name,
                                     "browser_key": account_id,
+                                    "challenge_url": ch_url,
                                     "seconds_left": 300,
-                                    "timer_str": "05:00",
+                                    "timer_str": "Défi Anti-Bot",
                                     "stock": f"{stock} / 10",
                                     "details": "⚠️ Pop-up anti-bot apparue lors de l'ouverture du paquet. Cliquez sur '🛠️ Résoudre'."
                                 }

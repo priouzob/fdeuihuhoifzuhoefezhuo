@@ -157,6 +157,12 @@ def get_state():
             last_cards = []
             last_stock = None
 
+        challenge_info = engine.get_account_challenge_info(aid)
+        if challenge_info.get("active"):
+            is_captcha_blocked = True
+            status_text = "🛡️ Défi Anti-Bot"
+            sub_lbl = "Défi détecté — Cliquez pour résoudre"
+
         acc_lifetime = lifetime.get(aid, {})
         acc_col = col_stats.get(aid, {})
 
@@ -170,6 +176,8 @@ def get_state():
             "sub_lbl": sub_lbl,
             "remaining_seconds": remaining_seconds,
             "is_captcha_blocked": is_captcha_blocked,
+            "challenge_url": challenge_info.get("url") or "https://www.wiki-masters.com/pulls",
+            "challenge_msg": challenge_info.get("message") or "Défi anti-bot détecté. Cliquez sur '🛠️ Résoudre'.",
             "is_reconnect_needed": is_reconnect_needed,
             "is_claiming": is_claiming,
             "stock_data": last_stock,
@@ -264,11 +272,30 @@ def api_open_browser():
     if account_id:
         acc = engine.get_account_info(account_id)
         name = acc.get("name", account_id)
-        broadcast_log(f"🌐 Lancement du navigateur pour '{name}'...", "info")
+        broadcast_log(f"🌐 Lancement du navigateur pour '{name}' au premier plan...", "info")
         import threading
+
+        def _on_resolved(aid):
+            try:
+                acc_inf = engine.get_account_info(aid)
+                acc_nm = acc_inf.get("name", aid)
+                broadcast_log(f"✅ Défi anti-bot validé pour '{acc_nm}' ! Reprise automatique immédiate...", "success")
+                mw = _gui_window_instance
+                if mw and hasattr(mw, "account_cards") and aid in mw.account_cards:
+                    card = mw.account_cards[aid]
+                    card.set_captcha_mode(False)
+                    card.set_reconnect_needed(False)
+                    card.is_connected = True
+                    card.set_status("✅  Prêt", "#14532d", "#86efac")
+                    mw.start_single_claim(aid)
+                elif _web_bridge:
+                    _web_bridge.claim_single_requested.emit(aid)
+            except Exception as ex:
+                print(f"[ON_RESOLVED ERROR] {ex}", flush=True)
+
         def _launch():
             try:
-                ok, msg = engine.open_account_browser(account_id, url=start_url, browser_type=browser_type)
+                ok, msg = engine.open_account_browser(account_id, url=start_url, browser_type=browser_type, on_resolved_callback=_on_resolved)
                 print(f"[API_OPEN_BROWSER] result: {ok}, {msg}", flush=True)
                 if ok:
                     broadcast_log(f"✓ {msg}", "success")
@@ -278,6 +305,28 @@ def api_open_browser():
                 import traceback
                 print(f"[API_OPEN_BROWSER ERROR] {e}\n{traceback.format_exc()}", flush=True)
         threading.Thread(target=_launch, daemon=True).start()
+        return jsonify({"success": True})
+    return jsonify({"success": False}), 400
+
+@app.route("/api/resume_claim", methods=["POST"])
+def api_resume_claim():
+    data = request.get_json(silent=True) or {}
+    account_id = data.get("account_id")
+    if account_id:
+        engine.clear_account_challenge(account_id)
+        acc = engine.get_account_info(account_id)
+        name = acc.get("name", account_id)
+        broadcast_log(f"⚡ Reprise immédiate du compte '{name}'...", "info")
+        mw = _gui_window_instance
+        if mw and hasattr(mw, "account_cards") and account_id in mw.account_cards:
+            card = mw.account_cards[account_id]
+            card.set_captcha_mode(False)
+            card.set_reconnect_needed(False)
+            card.is_connected = True
+            card.set_status("✅  Prêt", "#14532d", "#86efac")
+            mw.start_single_claim(account_id)
+        elif _web_bridge:
+            _web_bridge.claim_single_requested.emit(account_id)
         return jsonify({"success": True})
     return jsonify({"success": False}), 400
 

@@ -310,6 +310,31 @@
         </div>
       </div>
 
+      <!-- Captcha / Anti-Bot Global Alert Banner -->
+      <div id="captchaGlobalAlert" class="hidden mb-6 p-4 rounded-2xl bg-gradient-to-r from-purple-950/90 via-rose-950/90 to-purple-950/90 border border-purple-500/70 shadow-2xl shadow-purple-950/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-pulse">
+        <div class="flex items-center gap-3.5">
+          <div class="w-11 h-11 rounded-xl bg-purple-500/20 border border-purple-400/40 flex items-center justify-center text-purple-300 flex-shrink-0">
+            <i data-lucide="shield-alert" class="w-6 h-6 text-purple-400"></i>
+          </div>
+          <div>
+            <h4 class="text-sm font-black text-white flex items-center gap-2">
+              <span>🛡️ Défi Anti-Bot / Vérification requise</span>
+              <span id="captchaAccountNameBadge" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-500/30 text-purple-200 border border-purple-400/40">Compte</span>
+            </h4>
+            <p id="captchaAlertText" class="text-xs text-purple-200/80 mt-0.5">Un défi de sécurité bloque l'accès aux paquets. Cliquez sur le bouton pour ouvrir la fenêtre et le résoudre sur votre écran.</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 w-full md:w-auto">
+          <button id="btnResolveGlobalAlert" onclick="resolveCaptchaGlobal()" class="flex-1 md:flex-none px-4 py-2.5 bg-gradient-to-r from-purple-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white rounded-xl text-xs font-black shadow-lg shadow-purple-950 flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer">
+            <i data-lucide="external-link" class="w-4 h-4"></i>
+            <span>🛠️ Résoudre le Défi</span>
+          </button>
+          <button id="btnResumeGlobalAlert" onclick="resumeClaimGlobal()" class="flex-1 md:flex-none px-3.5 py-2.5 bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-white/10 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer">
+            <span>Reprendre</span>
+          </button>
+        </div>
+      </div>
+
       <!-- Account Cards Grid -->
       <div id="cardsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <!-- Rendu dynamique des cartes de comptes ici -->
@@ -1025,6 +1050,23 @@
         pauseIcon.setAttribute('data-lucide', 'play');
       }
 
+      // Captcha / Anti-Bot Alert Banner Check
+      const blockedAcc = (state.accounts || []).find(a => a.is_captcha_blocked || (a.status_text && a.status_text.includes("Défi")));
+      const alertEl = document.getElementById('captchaGlobalAlert');
+      if (alertEl) {
+        if (blockedAcc) {
+          alertEl.classList.remove('hidden');
+          const badge = document.getElementById('captchaAccountNameBadge');
+          if (badge) badge.innerText = blockedAcc.name || blockedAcc.id;
+          const txt = document.getElementById('captchaAlertText');
+          if (txt) txt.innerText = blockedAcc.challenge_msg || "Défi anti-bot bloquant. Cliquez sur 'Résoudre' pour l'ouvrir sur votre écran.";
+          window._currentBlockedAccountId = blockedAcc.id;
+          window._currentBlockedChallengeUrl = blockedAcc.challenge_url;
+        } else {
+          alertEl.classList.add('hidden');
+        }
+      }
+
       // Rendu des Cartes de Comptes
       renderAccountCards();
 
@@ -1069,8 +1111,9 @@
       state.accounts.forEach((acc, idx) => {
         const cardEl = document.createElement('div');
         const isPulling = acc.is_claiming === true;
+        const isCaptcha = acc.is_captcha_blocked || (acc.status_text && acc.status_text.includes("Défi"));
 
-        cardEl.className = `glass-card rounded-3xl p-5 shadow-2xl flex flex-col justify-between transition-all duration-300 relative overflow-hidden group ${isPulling ? 'ring-2 ring-brand-400 shadow-glow-cyan animate-pulse' : 'hover:-translate-y-1'}`;
+        cardEl.className = `glass-card rounded-3xl p-5 shadow-2xl flex flex-col justify-between transition-all duration-300 relative overflow-hidden group ${isCaptcha ? 'ring-2 ring-purple-500/80 shadow-glow-purple border-purple-500/60' : (isPulling ? 'ring-2 ring-brand-400 shadow-glow-cyan animate-pulse' : 'hover:-translate-y-1')}`;
 
         // Donut SVG circumference calculation
         const radius = 38;
@@ -1147,11 +1190,11 @@
               <span>🔑 Reconnecter</span>
             </button>
           `;
-        } else if (acc.is_captcha_blocked) {
+        } else if (acc.is_captcha_blocked || (statusText && statusText.includes("Défi"))) {
           setupBtn = `
-            <button onclick="resolveCaptcha('${acc.id}')" class="px-3.5 py-2 bg-gradient-to-r from-purple-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white rounded-xl text-xs font-black shadow-lg shadow-purple-950 flex items-center gap-1.5 transition-all active:scale-95 animate-pulse">
+            <button onclick="resolveCaptcha('${acc.id}', '${acc.challenge_url || ''}')" class="px-3.5 py-2 bg-gradient-to-r from-purple-600 via-pink-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white rounded-xl text-xs font-black shadow-lg shadow-purple-950 flex items-center gap-1.5 transition-all active:scale-95 animate-pulse cursor-pointer">
               <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i>
-              <span>🛠️ Résoudre</span>
+              <span>🛠️ Résoudre le Défi</span>
             </button>
           `;
         }
@@ -1163,6 +1206,14 @@
             <span>Tirer</span>
           </button>
         `;
+        if (acc.is_captcha_blocked || (statusText && statusText.includes("Défi"))) {
+          claimBtnHtml = `
+            <button onclick="resumeClaim('${acc.id}')" class="flex-1 py-2 bg-gradient-to-r from-purple-700 to-indigo-700 hover:from-purple-600 hover:to-indigo-600 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-lg shadow-purple-950 flex items-center justify-center gap-1.5 border border-purple-400/30 cursor-pointer">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>Reprendre</span>
+            </button>
+          `;
+        }
         if (isPulling) {
           claimBtnHtml = `
             <button disabled class="flex-1 py-2 bg-gradient-to-r from-sky-700 to-indigo-700 text-brand-100 rounded-xl text-xs font-bold shadow-lg flex items-center justify-center gap-1.5 cursor-wait opacity-90">
@@ -1404,13 +1455,37 @@
       });
     }
 
-    async function resolveCaptcha(accountId) {
-      showToast("Ouverture pour résolution de défi anti-bot…", "warning");
+    async function resolveCaptcha(accountId, challengeUrl) {
+      showToast("🛡️ Ouverture du navigateur au tout premier plan pour résoudre le défi...", "warning");
+      const url = challengeUrl || 'https://www.wiki-masters.com/pulls';
       await fetch('/api/open_browser', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account_id: accountId, start_url: 'https://www.wiki-masters.com/pulls' })
+        body: JSON.stringify({ account_id: accountId, start_url: url })
       });
+      showToast("Navigateur ouvert sur votre écran ! Résolvez le défi, la reprise sera 100% automatique.", "info");
+    }
+
+    async function resumeClaim(accountId) {
+      showToast("⚡ Reprise immédiate des tirages...", "info");
+      await fetch('/api/resume_claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: accountId })
+      });
+      fetchState();
+    }
+
+    function resolveCaptchaGlobal() {
+      if (window._currentBlockedAccountId) {
+        resolveCaptcha(window._currentBlockedAccountId, window._currentBlockedChallengeUrl);
+      }
+    }
+
+    function resumeClaimGlobal() {
+      if (window._currentBlockedAccountId) {
+        resumeClaim(window._currentBlockedAccountId);
+      }
     }
 
     let currentImportAccountId = null;

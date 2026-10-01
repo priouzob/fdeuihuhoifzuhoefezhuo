@@ -266,7 +266,15 @@ def is_bot_challenge_active(page):
     bloque actuellement l'écran ou l'accès aux boutons de tirage.
     """
     try:
-        # 1. Vérifier les textes caractéristiques des pop-ups de vérification
+        # 1. Vérifier le titre de page caractéristique des interstitiels Cloudflare
+        try:
+            t = (page.title() or "").lower()
+            if any(k in t for k in ["just a moment", "attention required", "cloudflare", "un instant", "vérifiez que vous"]):
+                return True
+        except Exception:
+            pass
+
+        # 2. Vérifier les textes caractéristiques des pop-ups de vérification
         modal_texts = [
             "text='Vérification rapide'",
             "text='Vérification de sécurité'",
@@ -288,7 +296,15 @@ def is_bot_challenge_active(page):
             except Exception:
                 pass
 
-        # 2. Vérifier si une modale ou dialogue contient un Turnstile ou un avertissement bot
+        # 3. Vérifier les conteneurs Cloudflare Managed Challenge
+        cf_containers = page.locator("#challenge-stage, #challenge-running, #challenge-form, .cf-browser-verification, [id*='turnstile'], [class*='cf-turnstile']")
+        if cf_containers.count() > 0:
+            for i in range(min(cf_containers.count(), 3)):
+                if cf_containers.nth(i).is_visible():
+                    if not is_turnstile_solved(page):
+                        return True
+
+        # 4. Vérifier si une modale ou dialogue contient un Turnstile ou un avertissement bot
         dialog_selectors = [
             "[role='dialog']:has(iframe[src*='challenges.cloudflare.com'])",
             "[role='dialog']:has(iframe[src*='turnstile'])",
@@ -309,7 +325,7 @@ def is_bot_challenge_active(page):
             except Exception:
                 pass
 
-        # 3. Widget Cloudflare Turnstile visible et non résolu
+        # 5. Widget Cloudflare Turnstile visible et non résolu
         cf_frames = page.locator("iframe[src*='challenges.cloudflare.com'], iframe[src*='turnstile'], div.cf-turnstile")
         if cf_frames.count() > 0:
             if not is_turnstile_solved(page):
@@ -319,6 +335,36 @@ def is_bot_challenge_active(page):
     except Exception:
         pass
     return False
+
+def get_bot_challenge_details(page):
+    """Retourne des détails structurés sur le défi anti-bot actif s'il y en a un."""
+    try:
+        if not is_bot_challenge_active(page):
+            return {"active": False}
+
+        c_type = "anti_bot"
+        title = ""
+        try:
+            title = page.title() or ""
+            if "just a moment" in title.lower() or "cloudflare" in title.lower():
+                c_type = "cloudflare_interstitial"
+        except Exception:
+            pass
+
+        if c_type == "anti_bot":
+            if page.locator("iframe[src*='cloudflare'], iframe[src*='turnstile'], div.cf-turnstile").count() > 0:
+                c_type = "turnstile"
+            elif page.locator("text='Vérification rapide', text='pas de script ni bot'").count() > 0:
+                c_type = "verification_modal"
+
+        return {
+            "active": True,
+            "type": c_type,
+            "url": page.url,
+            "title": title
+        }
+    except Exception:
+        return {"active": False}
 
 def check_and_handle_turnstile(page):
     """
