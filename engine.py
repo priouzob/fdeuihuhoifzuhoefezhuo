@@ -1189,6 +1189,7 @@ def run_claim_achievements_standalone(account_id, status_callback=None):
             headless=True,
             viewport={"width": 1366, "height": 768},
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+            ignore_default_args=["--enable-automation"],
             args=get_browser_launch_args(account_id)
         )
         apply_stealth(context)
@@ -1225,6 +1226,7 @@ def run_sync_friends_standalone(account_id, status_callback=None):
             headless=True,
             viewport={"width": 1366, "height": 768},
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+            ignore_default_args=["--enable-automation"],
             args=get_browser_launch_args(account_id)
         )
         apply_stealth(context)
@@ -1329,6 +1331,167 @@ SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 SUPABASE_REF = "cyrxjeppjqsxxjayfrur"
 SUPABASE_COOKIE_PREFIX = f"sb-{SUPABASE_REF}-auth-token"
 
+import glob
+import shutil
+import sqlite3
+try:
+    from ctypes import windll, byref, c_char, Structure, POINTER, c_uint32, create_string_buffer, cast
+    from Crypto.Cipher import AES
+    _HAS_CRYPTO_SUPPORT = True
+except Exception:
+    _HAS_CRYPTO_SUPPORT = False
+
+if _HAS_CRYPTO_SUPPORT:
+    class _DATA_BLOB(Structure):
+        _fields_ = [("cbData", c_uint32), ("pbData", POINTER(c_char))]
+
+    def _dpapi_decrypt(encrypted_bytes):
+        if not encrypted_bytes or sys.platform != "win32":
+            return None
+        try:
+            buf = create_string_buffer(encrypted_bytes)
+            blob_in = _DATA_BLOB(len(encrypted_bytes), cast(buf, POINTER(c_char)))
+            blob_out = _DATA_BLOB()
+            if windll.crypt32.CryptUnprotectData(byref(blob_in), None, None, None, None, 0, byref(blob_out)):
+                res = bytes(blob_out.pbData[:blob_out.cbData])
+                windll.kernel32.LocalFree(blob_out.pbData)
+                return res
+        except Exception:
+            pass
+        return None
+
+    def _get_profile_aes_key(profile_root):
+        local_state_path = os.path.join(profile_root, "Local State")
+        if not os.path.exists(local_state_path):
+            local_state_path = os.path.join(os.path.dirname(profile_root), "Local State")
+        if not os.path.exists(local_state_path):
+            return None
+        try:
+            with open(local_state_path, "r", encoding="utf-8") as f:
+                local_state = json.load(f)
+            encrypted_key = base64.b64decode(local_state["os_crypt"]["encrypted_key"])
+            if encrypted_key.startswith(b"DPAPI"):
+                encrypted_key = encrypted_key[5:]
+            return _dpapi_decrypt(encrypted_key)
+        except Exception:
+            return None
+
+    def _decrypt_cookie_val(aes_key, encrypted_val):
+        if not encrypted_val:
+            return ""
+        if encrypted_val.startswith(b"v10") or encrypted_val.startswith(b"v11") or encrypted_val.startswith(b"v20"):
+            try:
+                nonce = encrypted_val[3:15]
+                ciphertext = encrypted_val[15:-16]
+                tag = encrypted_val[-16:]
+                cipher = AES.new(aes_key, AES.MODE_GCM, nonce=nonce)
+                decrypted = cipher.decrypt_and_verify(ciphertext, tag)
+                return decrypted.decode("utf-8", errors="ignore")
+            except Exception:
+                return ""
+        else:
+            res = _dpapi_decrypt(encrypted_val)
+            return res.decode("utf-8", errors="ignore") if res else ""
+
+def extract_session_from_profile_disk(account_id):
+    """Extrait directement la session et les cookies Supabase depuis les fichiers du profil (LevelDB + SQLite)."""
+    acc = get_account_info(account_id)
+    p_dir = BASE_DIR / acc.get("profile_dir", f"profiles/{account_id}")
+    if not p_dir.exists():
+        return None
+
+    session_data = {
+        "account_id": account_id,
+        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": time.time(),
+        "url": "https://www.wiki-masters.com/pulls",
+        "cookies": [],
+        "local_storage": {},
+        "refresh_token": None,
+        "access_token": None,
+        "expires_at": None,
+        "user": {}
+    }
+
+    # 1. Scanner le LevelDB pour extraire le JSON Supabase contenant refresh_token
+    leveldb_dir = p_dir / "Default" / "Local Storage" / "leveldb"
+    if leveldb_dir.exists():
+        for fpath in glob.glob(str(leveldb_dir / "*.log")) + glob.glob(str(leveldb_dir / "*.ldb")):
+            try:
+                with open(fpath, "rb") as fp:
+                    data = fp.read()
+                    matches = re.findall(rb'\{[^{}]*"access_token"[^{}]*"refresh_token"[^{}]*\}', data)
+                    for m in matches:
+                        try:
+                            parsed = json.loads(m.decode("utf-8", errors="ignore"))
+                            if parsed.get("access_token") and parsed.get("refresh_token"):
+                                session_data["access_token"] = parsed["access_token"]
+                                session_data["refresh_token"] = parsed["refresh_token"]
+                                session_data["user"] = parsed.get("user", {})
+                                session_data["expires_at"] = parsed.get("expires_at")
+                                session_data["local_storage"][f"sb-{SUPABASE_REF}-auth-token"] = json.dumps(parsed)
+                                break
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+    # 2. Déchiffrer les cookies depuis la base SQLite
+    cookies_db = p_dir / "Default" / "Network" / "Cookies"
+    if cookies_db.exists() and _HAS_CRYPTO_SUPPORT:
+        aes_key = _get_profile_aes_key(str(p_dir))
+        if aes_key:
+            temp_db = BASE_DIR / f"temp_{account_id}_cookies.db"
+            try:
+                shutil.copy2(str(cookies_db), str(temp_db))
+                conn = sqlite3.connect(str(temp_db))
+                cur = conn.cursor()
+                cur.execute("SELECT host_key, name, path, encrypted_value, is_secure, is_httponly, expires_utc FROM cookies WHERE host_key LIKE '%wiki-masters%' OR host_key LIKE '%supabase%'")
+                for host, name, path, enc_val, is_sec, is_http, exp in cur.fetchall():
+                    val = _decrypt_cookie_val(aes_key, enc_val)
+                    if val:
+                        session_data["cookies"].append({
+                            "name": name,
+                            "value": val,
+                            "domain": host,
+                            "path": path,
+                            "secure": bool(is_sec),
+                            "httpOnly": bool(is_http)
+                        })
+                conn.close()
+            except Exception:
+                pass
+            finally:
+                if temp_db.exists():
+                    try:
+                        temp_db.unlink()
+                    except Exception:
+                        pass
+
+    if session_data["refresh_token"] or session_data["cookies"]:
+        return session_data
+    return None
+
+def save_session_dict_to_vault(account_id, session_data):
+    """Sauvegarde directement un dictionnaire de session dans le coffre-fort."""
+    if not session_data:
+        return False
+    try:
+        SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+        vp = get_session_vault_path(account_id)
+        bp = get_session_backup_path(account_id)
+        with open(vp, "w", encoding="utf-8") as f:
+            json.dump(session_data, f, ensure_ascii=False, indent=2)
+        try:
+            bp.parent.mkdir(parents=True, exist_ok=True)
+            with open(bp, "w", encoding="utf-8") as f:
+                json.dump(session_data, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
 def get_session_vault_path(account_id):
     """Chemin principal du coffre-fort de session pour ce compte."""
     return SESSIONS_DIR / f"{account_id}_session.json"
@@ -1345,6 +1508,10 @@ def has_saved_session_vault(account_id):
     bp = get_session_backup_path(account_id)
     target = vp if vp.exists() else (bp if bp.exists() else None)
     if not target:
+        disk_s = extract_session_from_profile_disk(account_id)
+        if disk_s and (disk_s.get("refresh_token") or disk_s.get("cookies")):
+            save_session_dict_to_vault(account_id, disk_s)
+            return True
         return False
     try:
         with open(target, "r", encoding="utf-8") as f:
@@ -1550,7 +1717,12 @@ def ensure_fresh_session_vault(account_id):
     bp = get_session_backup_path(account_id)
     target = vp if vp.exists() else (bp if bp.exists() else None)
     if not target:
-        return None
+        disk_s = extract_session_from_profile_disk(account_id)
+        if disk_s and (disk_s.get("refresh_token") or disk_s.get("cookies")):
+            save_session_dict_to_vault(account_id, disk_s)
+            target = vp
+        else:
+            return None
 
     try:
         with open(target, "r", encoding="utf-8") as f:
@@ -1821,6 +1993,7 @@ def verify_session(account_id):
                 user_data_dir=str(p_dir),
                 executable_path=exe_path,
                 headless=True,
+                ignore_default_args=["--enable-automation"],
                 args=get_browser_launch_args(account_id)
             )
             apply_stealth(context)
@@ -1908,6 +2081,7 @@ def setup_account(account_id, start_url="https://www.wiki-masters.com/login", st
                 executable_path=exe_path,
                 headless=False,
                 viewport={"width": 1280, "height": 850},
+                ignore_default_args=["--enable-automation"],
                 args=get_browser_launch_args(account_id)
             )
             _active_setup_context = context
@@ -1967,6 +2141,12 @@ def setup_account(account_id, start_url="https://www.wiki-masters.com/login", st
                     if "closed" in str(e).lower():
                         break
                     time.sleep(0.8)
+
+            if not is_logged_in:
+                disk_s = extract_session_from_profile_disk(account_id)
+                if disk_s and (disk_s.get("refresh_token") or disk_s.get("cookies")):
+                    save_session_dict_to_vault(account_id, disk_s)
+                    is_logged_in = True
 
             _active_setup_context = None
             if is_logged_in:
@@ -2247,6 +2427,24 @@ def open_account_browser(account_id, url="https://wiki-masters.com/pulls", brows
 
         threading.Thread(target=_activate_bg, daemon=True).start()
 
+        def _watch_login_bg():
+            for _ in range(60):
+                time.sleep(3)
+                if proc.poll() is not None:
+                    time.sleep(1)
+                    disk_s = extract_session_from_profile_disk(account_id)
+                    if disk_s and (disk_s.get("refresh_token") or disk_s.get("cookies")):
+                        save_session_dict_to_vault(account_id, disk_s)
+                        write_debug(f"Coffre-fort session capturé après fermeture de {b_name} pour {name} !")
+                    break
+                disk_s = extract_session_from_profile_disk(account_id)
+                if disk_s and disk_s.get("refresh_token"):
+                    save_session_dict_to_vault(account_id, disk_s)
+                    write_debug(f"Coffre-fort session capturé en direct depuis {b_name} pour {name} !")
+                    break
+
+        threading.Thread(target=_watch_login_bg, daemon=True).start()
+
         return True, f"{b_name} ouvert avec succès pour {name} (fenêtre au premier plan)."
     except Exception as e:
         return False, str(e)
@@ -2439,6 +2637,7 @@ def claim_account(account_id, headless=True, target_url=None, status_callback=No
                     headless=should_run_headless(account_id),
                     viewport={"width": 1366, "height": 768},
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+                    ignore_default_args=["--enable-automation"],
                     args=get_browser_launch_args(account_id)
                 )
                 apply_stealth(context)
